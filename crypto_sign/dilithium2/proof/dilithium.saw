@@ -133,7 +133,23 @@ let prove_dilithium MODULE MODE = do {
 
         freeze a = csubq (reduce32 a)
 
-        type impPoly = [1]intPoly
+        type impPoly = [1][n][32]
+        type impPolyVec dim = [dim]impPoly
+
+        IPtoP : impPoly -> poly
+        IPtoP [p] = map (drop `{uint32_t-qbits}) p
+
+
+        PtoIP : poly -> impPoly
+        PtoIP p = [map (\i -> zero#i) p]
+
+
+        IPVtoPV : {dim} (fin dim, dim >= 1) => impPolyVec dim -> polyVec dim
+        IPVtoPV intp = map IPtoP intp
+
+
+        PVtoIPV : {dim} (fin dim, dim >= 1) => polyVec dim -> impPolyVec dim
+        PVtoIPV pvec = map PtoIP pvec
 
         poly_add_imp : impPoly -> impPoly -> impPoly
         poly_add_imp = (+)
@@ -159,14 +175,14 @@ let prove_dilithium MODULE MODE = do {
         polybound' : [32] -> [32] -> impPoly -> Bit
         polybound' low high xs = and [ (low <=$ x) /\ (x <$ high) | x <- xs@0 ]
 
-        pack_polyeta_imp : impPoly -> [POLETA_SIZE_PACKED][8]
+        pack_polyeta_imp : impPolyVec 1 -> [POLETA_SIZE_PACKED][8]
         pack_polyeta_imp a = split (pack_polyeta (IPVtoPV a))
 
         ntt_imp : impPoly -> impPoly
-        ntt_imp a = [ PtoIP (ntt (IPtoP (a@0))) ]
+        ntt_imp a = PtoIP (ntt (IPtoP a))
 
         nttinv_imp : impPoly -> impPoly
-        nttinv_imp a = [ PtoIP (nttinv (IPtoP (a@0))) ]
+        nttinv_imp a = PtoIP (nttinv (IPtoP a))
 
         standard a = a < `Q
     }};
@@ -442,9 +458,9 @@ let prove_dilithium MODULE MODE = do {
       a0p <- crucible_alloc (llvm_int 32);
       crucible_precond {{ standard a }};
       crucible_execute_func [tm a, a0p];
-      let res = {{ Decompose `Q (a, `ALPHA) }};
+      let res = {{ Decompose `Q (drop a, `ALPHA) }};
       //crucible_points_to a0p (tm {{ res.1 }}); // TODO!
-      crucible_return (tm {{ res.0 }});
+      crucible_return (tm {{ sext (res.0) : [32] }});
     };
     PQCLEAN_DILITHIUM2_CLEAN_decompose_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_decompose" [] false PQCLEAN_DILITHIUM2_CLEAN_decompose_setup (prover "decompose");
 
@@ -661,7 +677,7 @@ let prove_dilithium MODULE MODE = do {
       (ap, a) <- fresh_poly "a";
       crucible_precond {{ polybound (0 - `ETA) `ETA a }};
       crucible_execute_func [rp, ap];
-      crucible_points_to rp (tm {{ pack_polyeta_imp a }});
+      crucible_points_to rp (tm {{ pack_polyeta_imp [drop a] }});
     };
     PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack_setup (prover "polyeta_pack");
 
@@ -670,7 +686,7 @@ let prove_dilithium MODULE MODE = do {
       (ap, a) <- fresh_poly "a";
       crucible_precond {{ polybound' (`Q - 2^^(`D - 1)) (`Q + 2^^(`D - 1)) a }};
       crucible_execute_func [rp, ap];
-      crucible_points_to rp (tm {{ split (polyt0_pack (a@0)) : [_][8] }});
+      crucible_points_to rp (tm {{ split (polyt0_pack (IPtoP a)) : [_][8] }});
     };
     PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack_setup (prover "polyt0_pack");
 
@@ -702,9 +718,9 @@ let prove_dilithium MODULE MODE = do {
       a0p <- crucible_alloc (llvm_int 32);
       crucible_precond {{ standard a }};
       crucible_execute_func [tm a, a0p];
-      let res = {{ Power2Round `Q (a, `D) }};
+      let res = {{ Power2Round `Q (drop a, `D) }};
       // crucible_points_to a0p (tm {{ res.1 }}); // TODO!
-      crucible_return (tm {{ res.0 }});
+      crucible_return (tm {{ sext (res.0) : [32] }});
       //crucible_postcond {{ a % `Q == a1*(2^^`D) + a0 /\ (0 - 2)^^(`D - 1) <$ a0 /\ a0 <$ 2^^(`D - 1) }};
     };
     PQCLEAN_DILITHIUM2_CLEAN_power2round_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_power2round" [] false PQCLEAN_DILITHIUM2_CLEAN_power2round_setup (prover "power2round");
