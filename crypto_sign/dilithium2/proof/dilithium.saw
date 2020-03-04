@@ -2,7 +2,7 @@
 /* Author: Ajay Kumar Eeralla */
 
 // Note: have to do this before llvm_load_module!
-//enable_lax_arithmetic;
+enable_lax_arithmetic;
 
 enable_experimental;
 //enable_smt_array_memory_model;
@@ -141,7 +141,7 @@ let prove_dilithium MODULE MODE = do {
 
 
         PtoIP : poly -> impPoly
-        PtoIP p = [map (\i -> zero#i) p]
+        PtoIP p = [map (\i -> sext i) p]
 
 
         IPVtoPV : {dim} (fin dim, dim >= 1) => impPolyVec dim -> polyVec dim
@@ -185,6 +185,8 @@ let prove_dilithium MODULE MODE = do {
         nttinv_imp a = PtoIP (nttinv (IPtoP a))
 
         standard a = a < `Q
+
+        standard_poly p = all standard
 
         polyt1_pack : impPoly -> [POLT1_SIZE_PACKED][8]
         polyt1_pack p = join [ (pack8 xs) | xs <- split (map (\x -> drop`{23} x) (join p)) : [32][8][_]]
@@ -709,11 +711,11 @@ let prove_dilithium MODULE MODE = do {
     let PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack_setup = do {
       rp <- alloc_bytes POLETA_SIZE_PACKED;
       (ap, a) <- fresh_poly "a";
-      crucible_precond {{ polybound (0 - `ETA) `ETA a }};
+      crucible_precond {{ polybound (`Q - `ETA) (`Q + `ETA) a }};
       crucible_execute_func [rp, ap];
-      crucible_points_to rp (tm {{ pack_polyeta_imp [drop a] }});
+      crucible_points_to rp (tm {{ pack_polyeta_imp [a] }});
     };
-    PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack_setup (prover "polyeta_pack");
+    PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack_setup (prover "polyeta_pack");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack_setup = do {
       rp <- alloc_bytes POLT0_SIZE_PACKED;
