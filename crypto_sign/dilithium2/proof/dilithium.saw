@@ -1,10 +1,10 @@
 /* Dilithium Verification */
-/* Author: Ajay Kumar Eeralla */
+/* Authors: Ajay Kumar Eeralla and Aaron Tomb */
 
 // Note: have to do this before llvm_load_module!
 enable_lax_arithmetic;
 
-enable_experimental;
+//enable_experimental;
 //enable_smt_array_memory_model;
 
 dilithium2 <- llvm_load_module "../clean/bc/libdilithium2_clean.a.bc";
@@ -178,6 +178,9 @@ let prove_dilithium MODULE MODE = do {
         pack_polyeta_imp : impPolyVec 1 -> [POLETA_SIZE_PACKED][8]
         pack_polyeta_imp a = split (pack_polyeta (IPVtoPV a))
 
+        pack_pk_imp : [SEEDBYTES][8] -> impPolyVec k -> [CRYPTO_PUBLICKEYBYTES][8]
+        pack_pk_imp rho t1 = split (pack_pk rho (IPVtoPV t1))
+
         ntt_imp : impPoly -> impPoly
         ntt_imp a = PtoIP (ntt (IPtoP a))
 
@@ -185,27 +188,7 @@ let prove_dilithium MODULE MODE = do {
         nttinv_imp a = PtoIP (nttinv (IPtoP a))
 
         standard a = a < `Q
-
         standard_poly p = all standard
-
-        polyt1_pack : impPoly -> [POLT1_SIZE_PACKED][8]
-        polyt1_pack p = join [ (pack8 xs) | xs <- split (map (\x -> drop`{23} x) (join p)) : [32][8][_]]
-            where pack8 xs = map drop`{1} [ xs@0 && zero#0xFF
-                            , xs@0 >> 8 || ((xs@1 && zero#0x7F) << 1)
-                            , xs@1 >> 7 || ((xs@2 && zero#0x3F) << 2)
-                            , xs@2 >> 6 || ((xs@3 && zero#0x1F) << 3)
-                            , xs@3 >> 5 || ((xs@4 && zero#0x0F) << 4)
-                            , xs@4 >> 4 || ((xs@5 && zero#0x07) << 5)
-                            , xs@5 >> 3 || ((xs@6 && zero#0x03) << 6)
-                            , xs@6 >> 2 || ((xs@7 && zero#0x01) << 7)
-                            , xs@7 >> 1
-                            ]
-
-        pack_pk :  [32][8] -> impPolyVec k -> [CRYPTO_PUBLICKEYBYTES][8]
-        pack_pk rho t1 = rho # (join [ polyt1_pack p | p <- t1])
-
-
-
 
 
     }};
@@ -691,9 +674,9 @@ let prove_dilithium MODULE MODE = do {
     let PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_setup = do {
       rp <- alloc_bytes POLT1_SIZE_PACKED;
       (ap, a) <- fresh_poly "a";
-      crucible_precond {{ True}};
+      crucible_precond {{ standard_poly a}};
       crucible_execute_func [rp, ap];
-      crucible_points_to rp (tm {{polyt1_pack a}});
+      crucible_points_to rp (tm {{split (poly_pack (IPtoP a)):[_][8]}});
     };
     PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_setup (prover "polyt1_pack");
 
@@ -701,9 +684,9 @@ let prove_dilithium MODULE MODE = do {
       pkp <- alloc_bytes CRYPTO_PUBLICKEYBYTES;
       (rhop, rho) <- fresh_bytes "rho" SEEDBYTES;
       (t1p, t1) <- fresh_polyvec "t1" K;
-      crucible_precond {{ True}};
+      crucible_precond {{`SEEDBYTES == 32}};
       crucible_execute_func [pkp, rhop, t1p];
-      crucible_postcond {{ pack_pk rho (join t1) }};
+      crucible_postcond {{ pack_pk_imp rho (join t1) }};
 
     };
     PQCLEAN_DILITHIUM2_CLEAN_pack_pk_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_pk" [PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_pk_setup (prover "pack_pk");
@@ -738,7 +721,7 @@ let prove_dilithium MODULE MODE = do {
       crucible_execute_func [skp, rhop, keyp, trp, s1p, s2p, t0p];
       crucible_postcond{{rho#key#tr #(pack_polyeta_imp [drop s1])# (pack_polyeta_imp [drop s2])#(split (polyt0_pack (IPtoP t0)) : [_][8])}};
     };
-    PQCLEAN_DILITHIUM2_CLEAN_pack_sk_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_sk" [PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_sk_setup (prover "pack_sk");
+    PQCLEAN_DILITHIUM2_CLEAN_pack_sk_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_sk" [PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_sk_setup (prover "pack_sk");
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_eta_setup = do {
       ap <- alloc_poly;

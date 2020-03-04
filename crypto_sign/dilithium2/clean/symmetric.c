@@ -7,11 +7,14 @@ void PQCLEAN_DILITHIUM2_CLEAN_shake128_stream_init(shake128ctx *state,
     unsigned int i;
     unsigned char buf[SEEDBYTES + 2];
 
+
     for (i = 0; i < SEEDBYTES; ++i) {
         buf[i] = seed[i];
     }
     buf[SEEDBYTES] = (uint8_t) nonce;
     buf[SEEDBYTES + 1] = (uint8_t) (nonce >> 8);
+   // printf("\n(uint8_t) nonce=%u\n", (uint8_t) 65280);
+    //printf("\n(uint8_t) nonce>>8=%u\n", (uint8_t) (nonce >> 8));
 
     shake128_absorb(state, buf, sizeof(buf));
 }

@@ -89,7 +89,10 @@ static const uint32_t zetas_inv[N] = {
 void PQCLEAN_DILITHIUM2_CLEAN_ntt(uint32_t p[N]) {
     unsigned int len, start, j, k;
     uint32_t zeta, t;
-
+    /*printf("\ncoefficients\n");
+    for (int i=0; i<N; i++) {
+        printf("%u,", *(p+i));
+    }*/
     k = 1;
     for (len = 128; len > 0; len >>= 1) {
         for (start = 0; start < N; start = j + len) {
@@ -101,6 +104,10 @@ void PQCLEAN_DILITHIUM2_CLEAN_ntt(uint32_t p[N]) {
             }
         }
     }
+    /*printf("\ncoefficients after ntt transformation\n");
+    for (int i=0; i<N; i++) {
+        printf("%u,", *(p+i));
+    }*/
 }
 
 /*************************************************

@@ -1,22 +1,21 @@
-# This Makefile can be used with GNU Make or BSD Make
+CC = /usr/bin/cc
+CFLAGS = -Wall -Wextra -march=native -mtune=native -O3 -fomit-frame-pointer
+NISTFLAGS = -O3 -fomit-frame-pointer -march=native -fPIC
+#SOURCES = sign.c polyvec.c packing.c poly.c reduce.c ntt.c rounding.c fips202.c
+SOURCES = *.c ../../../common/*.c
+#HEADERS = api.h params.h sign.h polyvec.h packing.h poly.h reduce.h ntt.h \
+  rounding.h fips202.h
+HEADERS = *.h ../../../common/*.h
 
-LIB=libdilithium2_clean.a
+all: PQCgenKAT_sign
 
-SOURCES = sign.c polyvec.c poly.c packing.c ntt.c reduce.c rounding.c symmetric.c 
-OBJECTS = sign.o polyvec.o poly.o packing.o ntt.o reduce.o rounding.o symmetric.o
-HEADERS = api.h params.h sign.h polyvec.h poly.h packing.h ntt.h \
-  reduce.h rounding.h symmetric.h 
+PQCgenKAT_sign: $(SOURCES) $(HEADERS)
+	$(CC) -I ../../../common $(NISTFLAGS) $(SOURCES) -o $@ -lcrypto
 
-CFLAGS=-g -O1 -Wall -Wconversion -Wextra -Wpedantic -Wvla -Werror -Wmissing-prototypes -Wredundant-decls -std=c99 -I../../../common $(EXTRAFLAGS)
 
-all: $(LIB)
-
-%.o: %.c $(HEADERS)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-$(LIB): $(OBJECTS)
-	$(AR) -r $@ $(OBJECTS)
+.PHONY: clean
 
 clean:
-	$(RM) $(OBJECTS)
-	$(RM) $(LIB)
+	rm -f PQCgenKAT_sign
+	rm -f a.out
+	rm -f output*
