@@ -199,6 +199,9 @@ let prove_dilithium MODULE MODE = do {
                             , xs@7 >> 1
                             ]
 
+        pack_pk :  [32][8] -> impPolyVec k -> [CRYPTO_PUBLICKEYBYTES][8]
+        pack_pk rho t1 = rho # (join [ polyt1_pack p | p <- t1])
+
 
 
 
@@ -696,7 +699,10 @@ let prove_dilithium MODULE MODE = do {
       pkp <- alloc_bytes CRYPTO_PUBLICKEYBYTES;
       (rhop, rho) <- fresh_bytes "rho" SEEDBYTES;
       (t1p, t1) <- fresh_polyvec "t1" K;
+      crucible_precond {{ True}};
       crucible_execute_func [pkp, rhop, t1p];
+      crucible_postcond {{ pack_pk rho (join ) }};
+
     };
     PQCLEAN_DILITHIUM2_CLEAN_pack_pk_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_pk" [PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_pk_setup (prover "pack_pk");
 
