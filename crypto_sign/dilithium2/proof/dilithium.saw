@@ -2,9 +2,9 @@
 /* Author: Ajay Kumar Eeralla */
 
 // Note: have to do this before llvm_load_module!
-enable_lax_arithmetic;
+//enable_lax_arithmetic;
 
-//enable_experimental;
+enable_experimental;
 //enable_smt_array_memory_model;
 
 dilithium2 <- llvm_load_module "../clean/bc/libdilithium2_clean.a.bc";
@@ -185,6 +185,24 @@ let prove_dilithium MODULE MODE = do {
         nttinv_imp a = PtoIP (nttinv (IPtoP a))
 
         standard a = a < `Q
+
+        polyt1_pack : impPoly -> [POLT1_SIZE_PACKED][8]
+        polyt1_pack p = join [ (pack8 xs) | xs <- split (map (\x -> drop`{23} x) (join p)) : [32][8][_]]
+            where pack8 xs = map drop`{1} [ xs@0 && zero#0xFF
+                            , xs@0 >> 8 || ((xs@1 && zero#0x7F) << 1)
+                            , xs@1 >> 7 || ((xs@2 && zero#0x3F) << 2)
+                            , xs@2 >> 6 || ((xs@3 && zero#0x1F) << 3)
+                            , xs@3 >> 5 || ((xs@4 && zero#0x0F) << 4)
+                            , xs@4 >> 4 || ((xs@5 && zero#0x07) << 5)
+                            , xs@5 >> 3 || ((xs@6 && zero#0x03) << 6)
+                            , xs@6 >> 2 || ((xs@7 && zero#0x01) << 7)
+                            , xs@7 >> 1
+                            ]
+
+
+
+
+
     }};
 
     let randombytes_setup = do {
@@ -668,7 +686,9 @@ let prove_dilithium MODULE MODE = do {
     let PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_setup = do {
       rp <- alloc_bytes POLT1_SIZE_PACKED;
       (ap, a) <- fresh_poly "a";
+      crucible_precond {{ True}};
       crucible_execute_func [rp, ap];
+      crucible_points_to rp (tm {{polyt1_pack a}});
     };
     PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_setup (prover "polyt1_pack");
 
