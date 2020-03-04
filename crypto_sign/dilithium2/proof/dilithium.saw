@@ -744,12 +744,12 @@ let prove_dilithium MODULE MODE = do {
       (rhop, rho) <- fresh_bytes "rho" SEEDBYTES;
       (keyp, key) <- fresh_bytes "key" SEEDBYTES;
       (trp, tr) <- fresh_bytes "tr" CRHBYTES;
-      (s1p, s1) <- fresh_polyvec "s1";
-      (s2p, s2) <- fresh_polyvec "s2";
-      (t0p, t0) <- fresh_polyvec "t0";
+      (s1p, s1) <- fresh_polyvec "s1" L;
+      (s2p, s2) <- fresh_polyvec "s2" K;
+      (t0p, t0) <- fresh_polyvec "t0" K;
       crucible_precond{{ True }};
       crucible_execute_func [skp, rhop, keyp, trp, s1p, s2p, t0p];
-      crucible_postcond{{rho#key#tr #(pack_polyeta_imp [drop s1])# (pack_polyeta_imp [drop s2])#(split (polyt0_pack (IPtoP t0)) : [_][8])}};
+      crucible_postcond{{rho#key#tr #(pack_polyeta_imp s1)# (pack_polyeta_imp s2)#(split (polyt0_pack (IPtoP t0)) : [_][8])}};
     };
     PQCLEAN_DILITHIUM2_CLEAN_pack_sk_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_sk" [PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_sk_setup (prover "pack_sk");
 
