@@ -701,7 +701,7 @@ let prove_dilithium MODULE MODE = do {
       (t1p, t1) <- fresh_polyvec "t1" K;
       crucible_precond {{ True}};
       crucible_execute_func [pkp, rhop, t1p];
-      crucible_postcond {{ pack_pk rho (join ) }};
+      crucible_postcond {{ pack_pk rho (join t1) }};
 
     };
     PQCLEAN_DILITHIUM2_CLEAN_pack_pk_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_pk" [PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_pk_setup (prover "pack_pk");
