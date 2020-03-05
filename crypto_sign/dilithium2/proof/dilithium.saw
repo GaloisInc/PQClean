@@ -326,11 +326,14 @@ let prove_dilithium MODULE MODE = do {
 
     let PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_setup = do {
       a <- crucible_fresh_var "a" i64;
+      crucible_precond {{ 0 <= a }};
       crucible_precond {{ a <= `Q*(2^^32) }};
       crucible_execute_func [tm a];
       let res = {{ montgomery_reduce a }};
       crucible_return (tm res);
       crucible_postcond {{ reduced_bound res }};
+      //crucible_postcond {{ sext (res % `Q) == (a * (2^^(-32))) % `Q }};
+      //crucible_postcond {{ sext (res % `Q) == a % `Q }};
     };
     PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce" [] false PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_setup (prover "montgomery_reduce");
 
