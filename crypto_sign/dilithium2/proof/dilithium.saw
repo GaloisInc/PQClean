@@ -184,6 +184,9 @@ let prove_dilithium MODULE MODE = do {
         polyvecbound : {m} (fin m, m >= 1) => [32] -> [32] -> impPolyVec m  -> Bit
         polyvecbound low high xs = and [ (polybound low high p) |  p <- xs]
 
+        polyvecbound' : {m} (fin m, m >= 1) => [32] -> [32] -> impPolyVec m  -> Bit
+        polyvecbound' low high xs = and [ (polybound' low high p) |  p <- xs]
+
         pack_polyeta_imp : {m} (fin m, m >= 1) => impPolyVec m-> [m*POLETA_SIZE_PACKED][8]
         pack_polyeta_imp a = split (pack_polyeta (IPVtoPV a))
 
@@ -707,18 +710,20 @@ let prove_dilithium MODULE MODE = do {
       rp <- alloc_bytes POLT1_SIZE_PACKED;
       (ap, a) <- fresh_poly "a";
       crucible_precond {{ standard_poly a}};
+      crucible_precond {{ polybound' 0 512 a }};
       crucible_execute_func [rp, ap];
       crucible_points_to rp (tm {{split (poly_pack (IPtoP a)):[_][8]}});
     };
-    PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_setup (prover "polyt1_pack");
+    PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_setup (prover "polyt1_pack");
 
     let PQCLEAN_DILITHIUM2_CLEAN_pack_pk_setup = do {
       pkp <- alloc_bytes CRYPTO_PUBLICKEYBYTES;
       (rhop, rho) <- fresh_bytes "rho" SEEDBYTES;
       (t1p, t1) <- fresh_polyvec "t1" K;
       crucible_precond {{standard_polyvec t1}};
+      crucible_precond {{polyvecbound' 0 512 (t1@0) }};
       crucible_execute_func [pkp, rhop, t1p];
-      crucible_postcond {{ pack_pk_imp rho (join t1) }};
+      crucible_postcond {{ pack_pk_imp rho (t1@0) }};
 
     };
     PQCLEAN_DILITHIUM2_CLEAN_pack_pk_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_pk" [PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_pk_setup (prover "pack_pk");
@@ -750,7 +755,9 @@ let prove_dilithium MODULE MODE = do {
       (s1p, s1) <- fresh_polyvec "s1" L;
       (s2p, s2) <- fresh_polyvec "s2" K;
       (t0p, t0) <- fresh_polyvec "t0" K;
-      crucible_precond{{ polyvecbound (`Q - `ETA) (`Q + `ETA) (join s1) /\ polyvecbound (`Q - `ETA) (`Q + `ETA) (join s2) }};
+      crucible_precond {{ polyvecbound (`Q - `ETA) (`Q + `ETA) (join s1) }};
+      crucible_precond {{ polyvecbound (`Q - `ETA) (`Q + `ETA) (join s2) }};
+      crucible_precond {{ polyvecbound' (`Q - (2^^(`D - 1))) (`Q + (2^^(`D - 1))) (t0@0) }};
       crucible_execute_func [skp, rhop, keyp, trp, s1p, s2p, t0p];
       crucible_points_to skp (tm {{rho#key#tr # (split (pack_polyeta (IPVtoPV (join s1))):[_][8])# (split (pack_polyeta (IPVtoPV (join s2))):[_][8])# (split (pack_t0 (IPVtoPV (join t0))):[_][8]) }});
       //crucible_points_to skp (tm {{(pack_sk  rho key tr (IPVtoPV (join s1)) (IPVtoPV (join s2)) (IPVtoPV (join t0))) }});
@@ -884,7 +891,7 @@ let prove_dilithium MODULE MODE = do {
       (ap, a) <- fresh_bytes "r" 1152;//K*POLT1_SIZE_PACKED;
       crucible_precond{{ True}};
       crucible_execute_func [rp, ap];
-      crucible_points_to rp (tm {{ polyt1_unpack a}});
+      crucible_points_to rp (tm {{ [PVtoIPV (polyt1_unpack a)] }});
       //crucible_points_to ap (tm a);
       //assign_fresh_poly rp "r";
     };
