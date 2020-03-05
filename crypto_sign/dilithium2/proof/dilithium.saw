@@ -171,6 +171,9 @@ let prove_dilithium MODULE MODE = do {
         poly_shiftl_imp : impPoly -> impPoly
         poly_shiftl_imp xs = [ [ x << `D | x <- (xs@0)] ]
 
+        polyvec_shiftl_imp : {dim} [dim]impPoly -> [dim]impPoly
+        polyvec_shiftl_imp = map poly_shiftl_imp
+
         coeff_bound low high c = low <$ c /\ c <$ high
 
         coeff_bound' low high c = low <=$ c /\ c <$ high
@@ -852,8 +855,9 @@ let prove_dilithium MODULE MODE = do {
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_shiftl_setup = do {
       (ap, a) <- fresh_polyvec "a" K;
       crucible_execute_func [ap];
+      crucible_points_to ap (tm {{ [polyvec_shiftl_imp (a@0)] }});
     };
-    PQCLEAN_DILITHIUM2_CLEAN_polyveck_shiftl_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_shiftl" [PQCLEAN_DILITHIUM2_CLEAN_poly_shiftl_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_shiftl_setup (prover "polyveck_shiftl");
+    PQCLEAN_DILITHIUM2_CLEAN_polyveck_shiftl_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_shiftl" [PQCLEAN_DILITHIUM2_CLEAN_poly_shiftl_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_shiftl_setup (prover "polyveck_shiftl");
 
     let PQCLEAN_DILITHIUM2_CLEAN_use_hint_setup = do {
       arg0 <- crucible_fresh_var "arg0" (llvm_int 32);
