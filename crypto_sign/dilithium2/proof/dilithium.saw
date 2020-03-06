@@ -9,6 +9,7 @@ enable_lax_arithmetic;
 
 dilithium2 <- llvm_load_module "../clean/bc/libdilithium2_clean.a.bc";
 import "../../../cryptol-specs/Primitive/Asymmetric/Signature/DilithiumR2BV.cry";
+import "../../../cryptol-specs/Common/mod_arith.cry";
 
 let tm = crucible_term;
 
@@ -99,6 +100,7 @@ let prove_dilithium MODULE MODE = do {
     let GAMMA2 = eval_int {{ ((`GAMMA1 : [32])/2) }};
     let ALPHA = eval_int {{ (2*(`GAMMA2 : [32])) }};
     let QINV = 4236238847;
+    let M = 4193792; // 2^32%Q
 
 
     // DilithiumII parameters
@@ -326,14 +328,14 @@ let prove_dilithium MODULE MODE = do {
 
     let PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_setup = do {
       a <- crucible_fresh_var "a" i64;
+      crucible_precond {{ a==18014398509481984 }};
       crucible_precond {{ 0 <= a }};
       crucible_precond {{ a <= `Q*(2^^32) }};
       crucible_execute_func [tm a];
       let res = {{ montgomery_reduce a }};
       crucible_return (tm res);
-      crucible_postcond {{ reduced_bound res }};
-      //crucible_postcond {{ sext (res % `Q) == (a * (2^^(-32))) % `Q }};
-      //crucible_postcond {{ sext (res % `Q) == a % `Q }};
+      crucible_postcond {{ res == drop (mod_mul(`M, a, mod_pow(`M, 2, `M-32):[64]) << 8)}};
+      //Note: If I do `q-32 then I have to shift 7 bits instead
     };
     PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce" [] false PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_setup (prover "montgomery_reduce");
 
