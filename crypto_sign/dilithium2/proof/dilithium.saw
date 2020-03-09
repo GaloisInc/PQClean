@@ -139,6 +139,7 @@ let prove_dilithium MODULE MODE = do {
 
         type impPoly = [1][n][32]
         type impPolyVec dim = [dim]impPoly
+        type impPolyVec' dim = [1][dim]impPoly
 
         IPtoP : impPoly -> poly
         IPtoP [p] = map (drop `{uint32_t-qbits}) p
@@ -154,6 +155,12 @@ let prove_dilithium MODULE MODE = do {
 
         PVtoIPV : {dim} (fin dim, dim >= 1) => polyVec dim -> impPolyVec dim
         PVtoIPV pvec = map PtoIP pvec
+
+        PMtoIPM : {m, n} (fin m, fin n, n>=1, m>=1) => [m] (polyVec n) -> [m] (impPolyVec' n)
+        PMtoIPM pmat = [[PVtoIPV pvec] | pvec <- pmat ]
+
+        IPMtoPM : {m, n} (fin m, fin n, n>=1, m>=1) => [m](impPolyVec' n) ->  [m](polyVec n)
+        IPMtoPM pmat = [IPVtoPV (join pvec) | pvec <- pmat ]
 
         poly_add_imp : impPoly -> impPoly -> impPoly
         poly_add_imp = (+)
@@ -211,6 +218,7 @@ let prove_dilithium MODULE MODE = do {
         standard_poly [p] = all standard p
 
         standard_polyvec [v] = all standard_poly v
+        standard_polyvecmat [v] = all standard_polyvec v
 
 
     }};
@@ -296,9 +304,10 @@ let prove_dilithium MODULE MODE = do {
     let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       matp <- crucible_alloc (llvm_array K (polyvec_type L));
       (rhop, rho) <- fresh_bytes "rho" SEEDBYTES;
+      crucible_precond {{True}};
       crucible_execute_func [matp, rhop];
-      crucible_points_to rhop (tm rho);
-      assign_fresh (llvm_array K (polyvec_type L)) matp "mat";
+      crucible_points_to matp (tm {{ PMtoIPM (ExpandA rho) }});
+      //assign_fresh (llvm_array K (polyvec_type L)) matp "mat";
     };
     PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_expand_mat" [PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup (prover "expand_mat");
 
@@ -896,11 +905,11 @@ let prove_dilithium MODULE MODE = do {
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint" [PQCLEAN_DILITHIUM2_CLEAN_poly_use_hint_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint_setup (prover "polyveck_use_hint");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyt1_unpack_setup = do {
-      rp <- alloc_polyvec K;
-      (ap, a) <- fresh_bytes "r" 1152;//K*POLT1_SIZE_PACKED;
+      rp <- alloc_poly;
+      (ap, a) <- fresh_bytes "a" 288;//K*POLT1_SIZE_PACKED;
       crucible_precond{{ True}};
       crucible_execute_func [rp, ap];
-      crucible_points_to rp (tm {{ [PVtoIPV (polyt1_unpack a)] }});
+      crucible_points_to rp (tm {{ PtoIP (polyt1_unpack a) }});
       //crucible_points_to ap (tm a);
       //assign_fresh_poly rp "r";
     };
