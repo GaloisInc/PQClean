@@ -10,6 +10,7 @@ enable_lax_arithmetic;
 dilithium2 <- llvm_load_module "../clean/bc/libdilithium2_clean.a.bc";
 import "../../../cryptol-specs/Primitive/Asymmetric/Signature/DilithiumR2BV.cry";
 import "../../../cryptol-specs/Common/mod_arith.cry";
+import "../../../cryptol-specs/Common/bv.cry";
 
 let tm = crucible_term;
 
@@ -217,8 +218,17 @@ let prove_dilithium MODULE MODE = do {
         pack_pk_imp : [SEEDBYTES][8] -> impPolyVec k -> [CRYPTO_PUBLICKEYBYTES][8]
         pack_pk_imp rho t1 = split (pack_pk rho (IPVtoPV t1))
 
+        ntt' : poly -> nttPoly
+        ntt' p = nttp
+            where
+            r k = mod_pow(`q, rootOfUnity, k)
+            exponents = join [ [zext i, (256+(zext i))] | i <- [reverse ((128+i) : [8]) | i <- [0..127] ] ]
+            nttp = [(sum ([ (mod_mul(`q, (p@idx), (mod_pow (`q, (r k), i)))) | idx<-[0..(n-1)]:[n][width n] | i<-[0..(n-1)]:[n][23]]))
+                   | k <- exponents
+                   ]
+
         ntt_imp : impPoly -> impPoly
-        ntt_imp a = PtoIP (ntt (IPtoP a))
+        ntt_imp a = PtoIP (ntt' (IPtoP a))
 
         nttinv_imp : impPoly -> impPoly
         nttinv_imp a = PtoIP (nttinv (IPtoP a))
@@ -321,7 +331,7 @@ let prove_dilithium MODULE MODE = do {
       crucible_execute_func [matp, rhop];
       crucible_points_to matp (tm {{ PMtoIPM (ExpandA rho) }});
     };
-    // Status: gobbles memory
+    // Status: counterexample (with quickcheck)
     PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_expand_mat" [PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup (prover "expand_mat");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_setup = do {
@@ -351,16 +361,17 @@ let prove_dilithium MODULE MODE = do {
 
     let PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_setup = do {
       a <- crucible_fresh_var "a" i64;
-      crucible_precond {{ a==18014398509481984 }};
       crucible_precond {{ 0 <= a }};
       crucible_precond {{ a <= `Q*(2^^32) }};
       crucible_execute_func [tm a];
       let res = {{ montgomery_reduce a }}; // TODO: make this equivalent to postcond below
       crucible_return (tm res);
-      crucible_postcond {{ res == drop (mod_mul(`M, a, mod_pow(`M, 2, `M-32):[64]) << 8)}};
+      crucible_postcond {{ 0 <= res }};
+      crucible_postcond {{ res < 2*`Q }};
+      //crucible_postcond {{ res == drop (mod_mul(`M, a, mod_pow(`M, 2, `M-32):[64]) << 8)}};
       //Note: If I do `q-32 then I have to shift 7 bits instead
     };
-    // Status: succeeds
+    // Status: succeeds (but not with full postcondition)
     PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce" [] false PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_setup (prover "montgomery_reduce");
 
     let PQCLEAN_DILITHIUM2_CLEAN_invntt_frominvmont_setup = do {
@@ -412,8 +423,9 @@ let prove_dilithium MODULE MODE = do {
       let res = {{ reduce32 a }};
       crucible_return (tm res);
       crucible_postcond {{ reduced_bound res }};
+      crucible_postcond {{ safe_mod(`Q, res) == (safe_mod(`Q, a) : [32]) }};
     };
-    // Status: succeeds
+    // Status: hangs with full postcondition, passes quickcheck
     PQCLEAN_DILITHIUM2_CLEAN_reduce32_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_reduce32" [] false PQCLEAN_DILITHIUM2_CLEAN_reduce32_setup (prover "reduce32");
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_reduce_setup = do {
