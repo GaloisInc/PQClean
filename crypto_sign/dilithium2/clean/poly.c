@@ -412,8 +412,8 @@ void PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_eta(poly *a,
         printf("%02X", buf[i]);*/
     ctr = rej_eta(a->coeffs, N, buf, POLY_UNIFORM_ETA_BUFLEN);
     //printf("\nPOLY_UNIFORM_ETA_BUFLEN=%u\n", POLY_UNIFORM_ETA_BUFLEN);
-    
-   
+
+
     while (ctr < N) {
         stream128_squeezeblocks(buf, 1, &state);
         ctr += rej_eta(a->coeffs + ctr, N - ctr, buf, STREAM128_BLOCKBYTES);
@@ -422,7 +422,7 @@ void PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_eta(poly *a,
     for(int i=0; i<N; ++i)
     printf("%u, ", a->coeffs[i]);
     printf("]");*/
-    
+
 }
 
 /*************************************************

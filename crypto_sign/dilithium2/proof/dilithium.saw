@@ -172,11 +172,18 @@ let prove_dilithium MODULE MODE = do {
         poly_add_imp : impPoly -> impPoly -> impPoly
         poly_add_imp = (+)
 
+        polyvec_add_imp : {n} (fin n, n>=1) => impPolyVec' n -> impPolyVec' n -> impPolyVec n
+        polyvec_add_imp [xs] [ys] = [poly_add_imp xp yp | xp <- xs | yp <- ys ]
+
+
         poly_sub_imp : impPoly -> impPoly -> impPoly
         poly_sub_imp xs ys = [ [ x + 2*`Q - y | x <- xs@0 | y <- ys@0 ] ]
 
         poly_reduce_imp : impPoly -> impPoly
         poly_reduce_imp xs = [map reduce32 (xs@0)]
+
+        polyvec_reduce_imp : {n} (fin n, n>=1) => impPolyVec' n -> impPolyVec' n
+        polyvec_reduce_imp [xs] = [map poly_reduce_imp xs]
 
         poly_csubq_imp : impPoly -> impPoly
         poly_csubq_imp xs = [map csubq (xs@0)]
@@ -188,7 +195,7 @@ let prove_dilithium MODULE MODE = do {
         poly_freeze_imp xs = [map freeze (xs@0)]
 
         polyvec_freeze_imp : {n}(fin n, n>=1) => impPolyVec' n -> impPolyVec' n
-        polyvec_freeze_imp xs = [map poly_freeze_imp (p@0) | p<- [xs]]
+        polyvec_freeze_imp [xs] = [map poly_freeze_imp xs]
 
         poly_shiftl_imp : impPoly -> impPoly
         poly_shiftl_imp xs = [ [ x << `D | x <- (xs@0)] ]
@@ -230,8 +237,16 @@ let prove_dilithium MODULE MODE = do {
         ntt_imp : impPoly -> impPoly
         ntt_imp a = PtoIP (ntt' (IPtoP a))
 
+        nttvec_imp : {n} (fin n, n>=1) => impPolyVec' n -> impPolyVec' n
+        nttvec_imp [xs] = [map ntt_imp xs]
+
         nttinv_imp : impPoly -> impPoly
         nttinv_imp a = PtoIP (nttinv (IPtoP a))
+
+        nttinv_vec_imp : {n} (fin n, n>=1) => impPolyVec' n -> impPolyVec' n
+        nttinv_vec_imp [xs] = [map nttinv_imp xs]
+
+
 
         standard a = a < `Q
 
@@ -327,12 +342,14 @@ let prove_dilithium MODULE MODE = do {
     let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       matp <- crucible_alloc (llvm_array K (polyvec_type L));
       (rhop, rho) <- fresh_bytes "rho" SEEDBYTES;
-      crucible_precond {{True}};
+      crucible_precond {{rho != zero}};
       crucible_execute_func [matp, rhop];
-      crucible_points_to matp (tm {{ PMtoIPM (ExpandA rho) }});
+      res <- crucible_fresh_var "res" (llvm_array K (polyvec_type L));
+      crucible_points_to matp (tm res);
+      crucible_postcond {{ (map (\x -> map (\y -> map (\z -> safe_mod(`Q, z)) y) x) (IPMtoPM res)) == (ExpandA rho) }};
     };
     // Status: counterexample (with quickcheck)
-    PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_expand_mat" [PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup (prover "expand_mat");
+    PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_expand_mat" [PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup (prover "expand_mat");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_setup = do {
       rp <- alloc_bytes POLZ_SIZE_PACKED;
@@ -691,7 +708,7 @@ let prove_dilithium MODULE MODE = do {
       (vp, v) <- fresh_polyvec "v" L;
       crucible_precond {{standard_polyvec u /\ standard_polyvec v }};
       crucible_execute_func [wp, up, vp];
-      crucible_points_to wp (tm {{ PVtoIPV' (paddV (IPVtoPV' u) (IPVtoPV' v))}});
+      crucible_points_to wp (tm {{ [polyvec_add_imp u v]}});
     };
     // Status: counterexample (not reduced?)
     PQCLEAN_DILITHIUM2_CLEAN_polyvecl_add_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyvecl_add" [PQCLEAN_DILITHIUM2_CLEAN_poly_add_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyvecl_add_setup (prover "polyvecl_add");
@@ -720,7 +737,7 @@ let prove_dilithium MODULE MODE = do {
       (vp, v) <- fresh_polyvec "v" L;
       crucible_precond {{ standard_polyvec v}};
       crucible_execute_func [vp];
-      crucible_points_to vp (tm {{(PVtoIPV' (map ntt (IPVtoPV' v)))}});
+      crucible_points_to vp (tm {{ nttvec_imp v}});
     };
     // Status: unknown
     PQCLEAN_DILITHIUM2_CLEAN_polyvecl_ntt_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyvecl_ntt" [PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyvecl_ntt_setup (prover "polyvecl_ntt");
@@ -744,7 +761,7 @@ let prove_dilithium MODULE MODE = do {
       //crucible_postcond {{ polybound' (-`ETA) (`ETA) a }};
     };
     // Status: counterexample
-    PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack_setup (prover "polyeta_unpack");
+    PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack_setup (prover "polyeta_unpack");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyt0_unpack_setup = do {
       rp <- alloc_poly;
@@ -951,6 +968,7 @@ let prove_dilithium MODULE MODE = do {
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_invntt_montgomery_setup = do {
       (ap, a) <- fresh_polyvec "a" K;
       crucible_execute_func [ap];
+      crucible_points_to ap (tm {{ nttinv_vec_imp a}});
     };
     // Status: no postcondition
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_invntt_montgomery_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_invntt_montgomery" [PQCLEAN_DILITHIUM2_CLEAN_poly_invntt_montgomery_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_invntt_montgomery_setup (prover "polyveck_invntt_montgomery");
@@ -958,6 +976,7 @@ let prove_dilithium MODULE MODE = do {
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_reduce_setup = do {
       (ap, a) <- fresh_polyvec "a" K;
       crucible_execute_func [ap];
+      crucible_points_to ap (tm {{polyvec_reduce_imp a}});
     };
     // Status: no postcondition
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_reduce_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_reduce" [PQCLEAN_DILITHIUM2_CLEAN_poly_reduce_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_reduce_setup (prover "polyveck_reduce");
