@@ -257,6 +257,8 @@ let prove_dilithium MODULE MODE = do {
         standard_polyvec [v] = all standard_poly v
         standard_polyvecmat [v] = all standard_polyvec v
 
+        bitCoeff a = a == 0 \/ a== 1
+        bitCoeff_poly [a] = all bitCoeff a
 
     }};
 
@@ -349,7 +351,7 @@ let prove_dilithium MODULE MODE = do {
       crucible_postcond {{ (map (\x -> map (\y -> map (\z -> safe_mod(`Q, z)) y) x) (IPMtoPM res)) == (ExpandA rho) }};
     };
     // Status: counterexample (with quickcheck)
-    PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_expand_mat" [PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup (prover "expand_mat");
+    PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_expand_mat" [PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup (prover "expand_mat");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_setup = do {
       rp <- alloc_bytes POLZ_SIZE_PACKED;
@@ -381,7 +383,7 @@ let prove_dilithium MODULE MODE = do {
       crucible_precond {{ 0 <= a }};
       crucible_precond {{ a <= `Q*(2^^32) }};
       crucible_execute_func [tm a];
-      let res = {{ montgomery_reduce a }}; // TODO: make this equivalent to postcond below
+      let res = {{ montgomery_reduce a}}; // TODO: make this equivalent to postcond below
       crucible_return (tm res);
       crucible_postcond {{ 0 <= res }};
       crucible_postcond {{ res < 2*`Q }};
@@ -389,7 +391,7 @@ let prove_dilithium MODULE MODE = do {
       //Note: If I do `q-32 then I have to shift 7 bits instead
     };
     // Status: succeeds (but not with full postcondition)
-    PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce" [] false PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_setup (prover "montgomery_reduce");
+    PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce" [] false PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_setup (prover "montgomery_reduce");
 
     let PQCLEAN_DILITHIUM2_CLEAN_invntt_frominvmont_setup = do {
       (pp, p) <- fresh_words "p" N;
@@ -632,41 +634,45 @@ let prove_dilithium MODULE MODE = do {
     // Status: succeeds
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_freeze_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_freeze" [PQCLEAN_DILITHIUM2_CLEAN_poly_freeze_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_freeze_setup (prover "polyveck_freeze");
 
-    // TODO: this isn't correct yet
+
     let PQCLEAN_DILITHIUM2_CLEAN_make_hint_setup = do {
       arg0 <- crucible_fresh_var "arg0" (llvm_int 32);
       arg1 <- crucible_fresh_var "arg1" (llvm_int 32);
       crucible_precond {{ standard arg0 }};
       crucible_precond {{ standard arg1 }};
       crucible_execute_func [tm arg0, tm arg1];
-      let res = {{ MakeHint (drop arg0, drop arg1) }};
-      crucible_return (tm {{ zext res : [32] }});
+      let res = {{ CLEAN_Make_hint (arg0', arg1')
+                where
+                  arg0' = drop arg0:[23]
+                  arg1' = drop arg1:[23]
+                  }};
+      crucible_return (tm {{ zext [res]:[32]}});
     };
-    // Status: counterexample
+    //Status: succeeds
     PQCLEAN_DILITHIUM2_CLEAN_make_hint_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_make_hint" [] false PQCLEAN_DILITHIUM2_CLEAN_make_hint_setup (prover "make_hint");
 
-      //TODO: Fix poly_make_hint
+
     let PQCLEAN_DILITHIUM2_CLEAN_poly_make_hint_setup = do {
       hp <- alloc_poly;
       (a0p, a0) <- fresh_poly "a0";
       (a1p, a1) <- fresh_poly "a1";
+      crucible_precond {{ standard_poly a0 /\ standard_poly a1 }};
       crucible_execute_func [hp, a0p, a1p];
-      ret <- crucible_fresh_var "return" (llvm_int 32);
-      crucible_return (tm ret);
+      crucible_return (tm {{  zext (MakeHintP' (IPtoP a0, IPtoP a1)) :[32]}});
     };
-    // Status: no postcondition
+    // Status: succeeds
     PQCLEAN_DILITHIUM2_CLEAN_poly_make_hint_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_make_hint" [PQCLEAN_DILITHIUM2_CLEAN_make_hint_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_make_hint_setup (prover "poly_make_hint");
 
-    //TODO: Fix polyveck_make_hint
+
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_make_hint_setup = do {
-      hp <- alloc_polyvec K;
+      (hp, h) <- fresh_polyvec "h" K;
       (v0p, v0) <- fresh_polyvec "v0" K;
-      (v1p, v0) <- fresh_polyvec "v1" K;
+      (v1p, v1) <- fresh_polyvec "v1" K;
+      crucible_precond {{standard_polyvec v0 /\ standard_polyvec v1}};
       crucible_execute_func [hp, v0p, v1p];
-      ret <- crucible_fresh_var "return" (llvm_int 32);
-      crucible_return (tm ret);
+      crucible_return (tm {{ zext (MakeHintV' (IPVtoPV' v0, IPVtoPV' v1)) :[32]}});
     };
-    // Status: no postcondition
+    // Status: succeeds
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_make_hint_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_make_hint" [PQCLEAN_DILITHIUM2_CLEAN_poly_make_hint_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_make_hint_setup (prover "polyveck_make_hint");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_ntt_setup = do {
@@ -1000,35 +1006,34 @@ let prove_dilithium MODULE MODE = do {
     let PQCLEAN_DILITHIUM2_CLEAN_use_hint_setup = do {
       arg0 <- crucible_fresh_var "arg0" (llvm_int 32);
       arg1 <- crucible_fresh_var "arg1" (llvm_int 32);
+      crucible_precond {{ standard arg0  }};
+      crucible_precond {{ arg1 == 0 }}; // TODO: fails when arg1 ==1
       crucible_execute_func [tm arg0, tm arg1];
-      ret <- crucible_fresh_var "return" (llvm_int 32);
-      crucible_return (tm ret);
+      crucible_return (tm {{ zext (UseHint (drop arg0, drop arg1)):[32]}});
     };
-    // Status: no postcondition
-    PQCLEAN_DILITHIUM2_CLEAN_use_hint_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_use_hint" [] false PQCLEAN_DILITHIUM2_CLEAN_use_hint_setup (prover "use_hint");
+    // Status: succeeds when hint is zero but to fix the proof for 1
+    PQCLEAN_DILITHIUM2_CLEAN_use_hint_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_use_hint" [PQCLEAN_DILITHIUM2_CLEAN_decompose_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_use_hint_setup (prover "use_hint");
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_use_hint_setup = do {
       ap <- alloc_poly;
       (bp, b) <- fresh_poly "b";
       (hp, h) <- fresh_poly "h";
+      crucible_precond {{standard_poly b /\ h==zero}}; // TODO: fails when coefficients are 1s
       crucible_execute_func [ap, bp, hp];
-      assign_fresh_poly ap "a";
-      crucible_points_to bp (tm b);
-      crucible_points_to hp (tm h);
+      crucible_points_to ap (tm {{ PtoIP (UseHintPoly (IPtoP b) (IPtoP h)) }});
     };
-    // Status: no postcondition
+    // Status: succeeds when hints are zeros but to fix the proof for 1's
     PQCLEAN_DILITHIUM2_CLEAN_poly_use_hint_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_use_hint" [PQCLEAN_DILITHIUM2_CLEAN_use_hint_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_use_hint_setup (prover "poly_use_hint");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint_setup = do {
       wp <- alloc_polyvec K;
       (up, u) <- fresh_polyvec "u" K;
       (hp, h) <- fresh_polyvec "h" K;
-      crucible_execute_func [wp, up, hp];
-      assign_fresh_polyvec K wp "w";
-      crucible_points_to up (tm u);
-      crucible_points_to hp (tm h);
+      crucible_precond {{standard_polyvec u /\ h==zero}};
+      crucible_execute_func [wp, up, hp]; // TODO: fails when coefficients are 1s
+      crucible_points_to wp (tm {{PVtoIPV' (UseHintV (IPVtoPV' u, IPVtoPV' h))}});
     };
-    // Status: no postcondition
+    // Status: succeeds when hints are zeros
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint" [PQCLEAN_DILITHIUM2_CLEAN_poly_use_hint_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint_setup (prover "polyveck_use_hint");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyt1_unpack_setup = do {
@@ -1037,8 +1042,6 @@ let prove_dilithium MODULE MODE = do {
       crucible_precond{{ True}};
       crucible_execute_func [rp, ap];
       crucible_points_to rp (tm {{ PtoIP (polyt1_unpack a) }});
-      //crucible_points_to ap (tm a);
-      //assign_fresh_poly rp "r";
     };
     // Status: counterexample
     PQCLEAN_DILITHIUM2_CLEAN_polyt1_unpack_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyt1_unpack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyt1_unpack_setup (prover "polyt1_unpack");
@@ -1048,21 +1051,19 @@ let prove_dilithium MODULE MODE = do {
       t1p <- alloc_polyvec K;
       (pkp, pk) <- fresh_bytes "pk" CRYPTO_PUBLICKEYBYTES;
       crucible_execute_func [rhop, t1p, pkp];
-      assign_fresh_bytes SEEDBYTES rhop "rho";
-      assign_fresh_polyvec K t1p "t1";
-      crucible_points_to pkp (tm pk);
+      crucible_points_to rhop (tm {{ (unpack_pk pk).0 }});
+      crucible_points_to t1p (tm{{ PVtoIPV' (unpack_pk pk).1 }});
     };
-    // Status: memory error applying overrides
-    PQCLEAN_DILITHIUM2_CLEAN_unpack_pk_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_unpack_pk" [PQCLEAN_DILITHIUM2_CLEAN_polyt1_unpack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_unpack_pk_setup (prover "unpack_pk");
+    // Status: succeeds
+    PQCLEAN_DILITHIUM2_CLEAN_unpack_pk_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_unpack_pk" [PQCLEAN_DILITHIUM2_CLEAN_polyt1_unpack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_unpack_pk_setup (prover "unpack_pk");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_setup = do {
       rp <- alloc_poly;
       (ap, a) <- fresh_bytes "a" POLZ_SIZE_PACKED;
       crucible_execute_func [rp, ap];
-      crucible_points_to ap (tm a);
-      assign_fresh_poly rp "r";
+      crucible_points_to rp (tm {{PtoIP (polyz_unpack a)}});
     };
-    // Status: no postcondition
+    // Status: counter example
     PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_setup (prover "polyz_unpack");
 
     let PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_setup = do {
@@ -1071,12 +1072,11 @@ let prove_dilithium MODULE MODE = do {
       cp <- alloc_poly;
       (sigp, sig) <- fresh_bytes "sig" CRYPTO_BYTES;
       crucible_execute_func [zp, hp, cp, sigp];
-      assign_fresh_polyvec L zp "z";
-      assign_fresh_polyvec K hp "h";
-      assign_fresh_poly cp "c";
-      crucible_return (tm {{ 0 : [32] }});
+      crucible_points_to zp (tm {{PVtoIPV' (unpack_sig sig).0}});
+      crucible_points_to hp (tm {{PVtoIPV' (unpack_sig sig).1}});
+      crucible_points_to cp (tm {{PtoIP (unpack_sig sig).2}});
     };
-    // Status: hangs applying override, using tons of memory
+    // Status: hangs applying override, using tons of memory; this is true even after adding postcond.
     PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_method_spec <- assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_unpack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_setup (prover "unpack_sig");
 
     let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_setup = do {
