@@ -582,7 +582,7 @@ let prove_dilithium MODULE MODE = do {
         else a % `Q == a1*`ALPHA + a0 /\ a0 <=$ `ALPHA/2 /\ -`ALPHA/2 < a0
       }};
     };
-    // Status: succeeds
+    // Status: succeeds (I get counter example though)
     PQCLEAN_DILITHIUM2_CLEAN_decompose_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_decompose" [] false PQCLEAN_DILITHIUM2_CLEAN_decompose_setup (prover "decompose");
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_decompose_setup = do {
