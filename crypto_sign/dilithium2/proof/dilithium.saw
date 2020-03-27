@@ -210,6 +210,10 @@ let prove_dilithium MODULE MODE = do {
 
         coeff_bound' low high c = low <=$ c /\ c <$ high
 
+        coeff_boundlgeq low high c = low <= c /\ c<= high
+        polyboundlgeq : [32] -> [32] -> impPoly -> Bit
+        polyboundlgeq low high [xs] = all (coeff_boundlgeq low high) xs
+
         polybound : [32] -> [32] -> impPoly -> Bit
         polybound low high [xs] = all (coeff_bound low high) xs
 
@@ -263,6 +267,8 @@ let prove_dilithium MODULE MODE = do {
         bitCoeff a = a == 0 \/ a== 1
         bitCoeff_poly [a] = all bitCoeff a
         bitCoeff_polyvec [a] = all bitCoeff_poly a
+
+        byte_bound low high c = low <= c /\ c <= high
 
     }};
 
@@ -583,7 +589,7 @@ let prove_dilithium MODULE MODE = do {
       }};
     };
     // Status: succeeds (I get counter example though)
-    PQCLEAN_DILITHIUM2_CLEAN_decompose_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_decompose" [] false PQCLEAN_DILITHIUM2_CLEAN_decompose_setup (prover "decompose");
+    PQCLEAN_DILITHIUM2_CLEAN_decompose_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_decompose" [] false PQCLEAN_DILITHIUM2_CLEAN_decompose_setup (prover "decompose");
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_decompose_setup = do {
       a0p <- alloc_poly;
@@ -767,12 +773,14 @@ let prove_dilithium MODULE MODE = do {
     let PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack_setup = do {
       rp <- alloc_polyvec 1;
       (ap, a) <- fresh_bytes "a" POLETA_SIZE_PACKED;
+      crucible_precond {{ and [(byte_bound (-`ETA) (`ETA) x)| x <- a] }};
       crucible_execute_func [rp, ap];
-      crucible_points_to rp (tm {{[PVtoIPV (unpack_polyeta a)]}});
-      //crucible_postcond {{ polybound' (-`ETA) (`ETA) a }};
+      let res = {{unpack_polyeta' a }};
+      crucible_points_to rp (tm {{[ [[x] | x<- res]]}});
+      //crucible_postcond {{ polyboundlgeq ((`Q-(zext `ETA)):[32]) ((`Q+ (zext `ETA)):[32]) [a] }};
     };
-    // Status: counterexample
-    PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack_setup (prover "polyeta_unpack");
+    // Status: succeeds
+    PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack_setup (prover "polyeta_unpack");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyt0_unpack_setup = do {
       rp <- alloc_poly;
@@ -1018,7 +1026,7 @@ let prove_dilithium MODULE MODE = do {
       crucible_return (tm {{ zext (UseHint (drop arg0, drop arg1)):[32]}});
     };
     // Status: succeeds when hint is zero but to fix the proof for 1
-    PQCLEAN_DILITHIUM2_CLEAN_use_hint_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_use_hint" [PQCLEAN_DILITHIUM2_CLEAN_decompose_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_use_hint_setup (prover "use_hint");
+    PQCLEAN_DILITHIUM2_CLEAN_use_hint_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_use_hint" [PQCLEAN_DILITHIUM2_CLEAN_decompose_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_use_hint_setup (prover "use_hint");
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_use_hint_setup = do {
       ap <- alloc_poly;
@@ -1050,7 +1058,7 @@ let prove_dilithium MODULE MODE = do {
       crucible_points_to rp (tm {{ PtoIP (polyt1_unpack a) }});
     };
     // Status: counterexample
-    PQCLEAN_DILITHIUM2_CLEAN_polyt1_unpack_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyt1_unpack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyt1_unpack_setup (prover "polyt1_unpack");
+    PQCLEAN_DILITHIUM2_CLEAN_polyt1_unpack_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyt1_unpack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyt1_unpack_setup (prover "polyt1_unpack");
 
     let PQCLEAN_DILITHIUM2_CLEAN_unpack_pk_setup = do {
       rhop <- alloc_bytes SEEDBYTES;
