@@ -8,9 +8,9 @@ enable_lax_arithmetic;
 //enable_smt_array_memory_model;
 
 dilithium2 <- llvm_load_module "../clean/bc/libdilithium2_clean.a.bc";
-import "cryptol-specs/Primitive/Asymmetric/Signature/DilithiumR2BV.cry";
-import "cryptol-specs/Common/mod_arith.cry";
-import "cryptol-specs/Common/bv.cry";
+import "deps/cryptol-specs/Primitive/Asymmetric/Signature/DilithiumR2BV.cry";
+import "deps/cryptol-specs/Common/mod_arith.cry";
+import "deps/cryptol-specs/Common/bv.cry";
 
 let tm = crucible_term;
 
