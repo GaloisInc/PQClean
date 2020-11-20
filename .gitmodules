@@ -1,3 +1,6 @@
 [submodule "test/pycparser"]
 	path = test/pycparser
 	url = https://github.com/eliben/pycparser.git
+[submodule "crypto_sign/dilithium2/proof/cryptol-specs"]
+	path = crypto_sign/dilithium2/proof/cryptol-specs
+	url = git@github.com:GaloisInc/cryptol-specs.git
