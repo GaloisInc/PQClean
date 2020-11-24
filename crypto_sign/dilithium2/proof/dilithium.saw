@@ -126,7 +126,7 @@ let prove_dilithium MODULE MODE = do {
     // Cryptol utilities
     let {{
         montgomery_reduce : [64] -> [32]
-        montgomery_reduce a = drop ((a + (((a * `QINV) && 0x00000000ffffffff) * `Q)) >>$ 32)
+        montgomery_reduce a = drop ((a + (((a * qinv) && 0x00000000ffffffff) * `q)) >> 32)
 
         reduce32 : [32] -> [32]
         reduce32 a = (a && 0x007FFFFF) + (b << 13) - b
@@ -398,31 +398,36 @@ let prove_dilithium MODULE MODE = do {
       a <- crucible_fresh_var "a" i64;
       crucible_precond {{ 0 <=$ a /\ a <=$ `Q*(2^^32) }};
       crucible_execute_func [tm a];
-      let res = {{ montgomery_reduce a}}; // TODO: make this equivalent to postcond below
+      let res = {{ montgomery_reduce a}};
       crucible_return (tm res);
       crucible_postcond {{ reduced_bound res }};
-      //crucible_postcond {{ safe_mod(`Q, res) == (safe_mod(`Q, (a%`Q)* 2^^(0-32)):[32])}};
-      //crucible_postcond {{ res == drop (mod_mul(`M, a, mod_pow(`M, 2, `M-32):[64]) << 8)}};
-      //Note: If I do `q-32 then I have to shift 7 bits instead
+      crucible_postcond {{  safe_product (res, `M) % `Q == safe_mod(`Q, a) }};
     };
     // Status: succeeds (but not with full postcondition)
     PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce" [] false PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_setup (prover "montgomery_reduce");
 
     let PQCLEAN_DILITHIUM2_CLEAN_invntt_frominvmont_setup = do {
-      (pp, p) <- fresh_words "p" N;
+      (pp, p) <- fresh_poly "p";
+      crucible_precond {{ standard_poly a }};
       crucible_execute_func [pp];
-      crucible_points_to pp (tm {{ map zext (nttinv (map drop`{9} p)):[N][32] }});
+      let res = {{ map zext (nttinv (map drop`{9} p)):[N][32] }};
+      crucible_points_to pp (tm res);
+      crucible_postcond {{ standard_poly res }};
+
     };
     // Status: unknown
-    PQCLEAN_DILITHIUM2_CLEAN_invntt_frominvmont_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_invntt_frominvmont" [PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_invntt_frominvmont_setup (prover "invntt_frominvmont");
+    PQCLEAN_DILITHIUM2_CLEAN_invntt_frominvmont_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_invntt_frominvmont" [PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_invntt_frominvmont_setup (prover "invntt_frominvmont");
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_invntt_montgomery_setup = do {
       (ap, a) <- fresh_poly "a";
+      crucible_precond {{ standard_poly a }};
       crucible_execute_func [ap];
-      crucible_points_to ap (tm {{ nttinv_imp a }});
+      let res = {{ nttinv_imp a}};
+      crucible_points_to ap (tm res);
+      crucible_precond {{ standard_poly res }};
     };
     // Status: unknown
-    PQCLEAN_DILITHIUM2_CLEAN_poly_invntt_montgomery_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_invntt_montgomery" [PQCLEAN_DILITHIUM2_CLEAN_invntt_frominvmont_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_invntt_montgomery_setup (prover "invntt_montgomery");
+    PQCLEAN_DILITHIUM2_CLEAN_poly_invntt_montgomery_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_invntt_montgomery" [PQCLEAN_DILITHIUM2_CLEAN_invntt_frominvmont_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_invntt_montgomery_setup (prover "invntt_montgomery");
 
     let PQCLEAN_DILITHIUM2_CLEAN_ntt_setup = do {
       (ap, a) <- fresh_poly "a";
@@ -433,15 +438,19 @@ let prove_dilithium MODULE MODE = do {
       crucible_postcond {{ standard_poly res }};
     };
     // Status: unknown
-    PQCLEAN_DILITHIUM2_CLEAN_ntt_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_ntt" [PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_ntt_setup (prover "ntt");
+    PQCLEAN_DILITHIUM2_CLEAN_ntt_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_ntt" [PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_ntt_setup (prover "ntt");
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_setup = do {
       (ap, a) <- fresh_poly "a";
+      crucible_precond {{ standard_poly a }};
       crucible_execute_func [ap];
-      crucible_points_to ap (tm {{PtoIP (ntt (IPtoP a)) }});
+      let res = {{PtoIP (ntt (IPtoP a)) }};
+      crucible_points_to ap (tm res);
+      crucible_postcond {{ standard_poly res }};
     };
     // Status: unknown
-    PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_ntt" [PQCLEAN_DILITHIUM2_CLEAN_ntt_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_setup (prover "poly_ntt");
+    PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_ntt" [PQCLEAN_DILITHIUM2_CLEAN_ntt_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_setup (prover "poly_ntt");
+
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_setup = do {
       cp <- alloc_poly;
@@ -452,7 +461,7 @@ let prove_dilithium MODULE MODE = do {
       crucible_points_to cp (tm {{PtoIP (nttPolyMult (IPtoP a) (IPtoP b)) }});
     };
     // Status: unknown
-    PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery" [PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_setup (prover "poly_pointwise_invmontgomery");
+    PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery" [PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_setup (prover "poly_pointwise_invmontgomery");
 
     let PQCLEAN_DILITHIUM2_CLEAN_reduce32_setup = do {
       a <- crucible_fresh_var "a" i32;
@@ -460,7 +469,6 @@ let prove_dilithium MODULE MODE = do {
       let res = {{ reduce32 a }};
       crucible_return (tm res);
       crucible_postcond {{ reduced_bound res }};
-      //crucible_postcond {{ safe_mod(`Q, res) == (safe_mod(`Q, a) : [32]) }};
     };
     // Status: succeeds
     PQCLEAN_DILITHIUM2_CLEAN_reduce32_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_reduce32" [] false PQCLEAN_DILITHIUM2_CLEAN_reduce32_setup (prover "reduce32");
@@ -468,8 +476,9 @@ let prove_dilithium MODULE MODE = do {
     let PQCLEAN_DILITHIUM2_CLEAN_poly_reduce_setup = do {
       (ap, a) <- fresh_poly "a";
       crucible_execute_func [ap];
-      crucible_points_to ap (tm {{ poly_reduce_imp a }});
-      // crucible_postcond {{ polybound  ... a }}; // TODO
+      let res = {{ poly_reduce_imp a }};
+      crucible_points_to ap (tm res);
+      crucible_postcond {{ polybound' res }}; 
     };
     // Status: succeeds
     PQCLEAN_DILITHIUM2_CLEAN_poly_reduce_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_reduce" [PQCLEAN_DILITHIUM2_CLEAN_reduce32_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_reduce_setup (prover "poly_reduce");
@@ -1131,7 +1140,6 @@ let prove_dilithium MODULE MODE = do {
     // TODO: Pointer passed to `memset` didn't point to a mutable allocation with enough space.
     // Status: unknown (missing postcondition)
     PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_setup (prover "crypto_sign_open");
-
     return ();
 };
 
