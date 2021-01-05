@@ -924,14 +924,15 @@ let prove_dilithium MODULE MODE = do {
     let PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack_setup = do {
       rp <- alloc_bytes POLT0_SIZE_PACKED;
       (ap, a) <- fresh_poly "a";
-      //crucible_precond {{ standard_poly a }};
+      crucible_precond {{ polyboundleq (0 - (2^^(`D - 1))) (2^^(`D - 1)) a }};
       crucible_execute_func [rp, ap];
-      //let res = {{ split (polyt0_pack (IPtoP a)) : [_][8] }};
-      crucible_points_to rp (tm {{ split (polyt0_pack (IPtoP a)) : [_][8] }});
-      //crucible_postcond {{ and [ -2^^(`D/2) <$ c /\ c <=$ 2^^(`D/2) | c <- res ] }};
+      let res = {{ split (polyt0_pack (IPtoP a)):[_][8] }};
+      //let res = {{ reverse [ reverse x | x <- split (polyt0_pack (reverse (IPtoP a))) : [_][8] ] }};
+      crucible_points_to rp (tm {{ res }});
+      //crucible_postcond {{ and [ (0 - 2^^(`D/2)) <$ c /\ c <=$ 2^^(`D/2) | c <- res ] }};
     };
     // Status: counterexample
-    PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack_setup (prover "polyt0_pack");
+    PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack_setup (prover "polyt0_pack");
 
     
   let PQCLEAN_DILITHIUM2_CLEAN_pack_sk_setup = do {
