@@ -863,7 +863,7 @@ let prove_dilithium MODULE MODE = do {
       crucible_points_to s2p (tm {{ [ [ [p] | p <- res.4 ] ] }});
       crucible_points_to t0p (tm {{ [ PVtoIPV res.5 ] }});
     };
-    // Status: unknown
+    // Status: succeeds
     PQCLEAN_DILITHIUM2_CLEAN_unpack_sk_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_unpack_sk" [PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyt0_unpack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_unpack_sk_setup (prover "unpack_sk");
 
     let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_setup = do {
