@@ -1,0 +1,22 @@
+import Common::mod_arith
+import Primitive::Asymmetric::Signature::DilithiumR2BV
+
+// a1 and a0 represent low, high order bits respectively.
+decomposePc (a1 : [23]) (a0 : [23]) (a : [23]) =
+  if a1 != (`Q - 1)/ALPHA
+  // This is satisfied by decompose but not decomposeNew
+  then mod_pow(`Q, a, 1) == a1*ALPHA + a0 /\ -ALPHA/2 <$ a0 /\ a0 <=$ ALPHA/2
+  // This is satisfied by decomposeNew and decompose
+  else a1 == 0 /\ a0 == mod_pow(`Q, a, 1) - `Q  /\ -ALPHA/2 <=$ a0 /\ a0 <$ 0
+                               
+property decomposePcGood (a:[23]) =
+  0 <$ a /\ a <$ `Q ==>
+  (decomposePc a1 a0 a /\ decomposePc (drop a1n) (drop a0n) a)
+    where
+      (a1, a0) = decompose a
+      (a1n, a0n) = decomposeNew (sext a)
+
+property decomposeEq (a : [23]) = 0 <$ a /\ a <$ `Q ==> sext a0 == a0n /\ sext a1 == a1n
+  where
+    (a1, a0) = decompose a
+    (a1n, a0n) = decomposeNew (sext a)

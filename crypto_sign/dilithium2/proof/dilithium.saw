@@ -19,6 +19,7 @@ dilithium2 <- llvm_load_module "../clean/bc/libdilithium2_clean.a.bc";
 import "deps/cryptol-specs/Primitive/Asymmetric/Signature/DilithiumR2BV.cry";
 import "deps/cryptol-specs/Common/mod_arith.cry";
 import "deps/cryptol-specs/Common/bv.cry";
+import "DilithiumAux.cry";
 
 let tm = crucible_term;
 
@@ -245,6 +246,10 @@ let prove_dilithium MODULE MODE = do {
         nttInvVecImp [xs] = [ map nttInvImp xs ]
 
         standard a = a < `Q
+
+        standard32 a = 0 <$ smalla /\ smalla <$ `Q /\ a == sext smalla
+          where smalla = drop a : [23]
+
         standardByte a = (zext a:[23]) < `Q
         standardBytes a = all standardByte a
         standardPoly [p] = all standard p
@@ -255,11 +260,6 @@ let prove_dilithium MODULE MODE = do {
         reducedBoundPoly [p] = all reducedBound p
         reducedBoundPolyVec [v] = all reducedBoundPoly v
 
-        // a1 and a0 represent low, high order bits respectively.
-        decomposePc a1 a0 a =  if a1 != (`Q - 1)/ALPHA
-                                then (a % `Q) == a1*ALPHA + a0 /\ a0 <=$ ALPHA/2 /\ -ALPHA/2 <$ a0
-                                else a1 == 0 /\ a0 == (a % `Q) - `Q  /\  -ALPHA/2 <=$ a0 /\ a0 <$ 0
-                               
         decomposePolyPc [a1] [a0] [a] = all (decomposePc a1 a0) a   
       
         bitCoeff a = a == 0 \/ a== 1
@@ -600,18 +600,17 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     let PQCLEAN_DILITHIUM2_CLEAN_decompose_setup = do {
       a <- crucible_fresh_var "a" (llvm_int 32);
       a1p <- crucible_alloc (llvm_int 32);
-      crucible_precond {{ standard a /\ a > 0 }};
+      crucible_precond {{ standard32 a }};
       crucible_execute_func [tm a, a1p];
-      let res = {{ decomposeNew (drop a) }}; // (high_bits, low_bits)
+      let res = {{ decompose (drop a) }}; // (high_bits, low_bits)
       let highBits = {{ sext (res.0) : [32] }}; // high_bits
       let lowBits = {{ sext (res.1) : [32] }}; // low_bits
-      // There should be some conditional branching like (if ? then (zext drop`{9} lowBits) else lowBits)
       crucible_points_to a1p (tm lowBits);
       crucible_return (tm highBits); // this return correct 
-      //crucible_postcond {{ decomposePc a1 a0 a }};
+      crucible_postcond {{ decomposePc res.1 res.0 (drop a) }};
     };
-    // Status: counterexample
-    PQCLEAN_DILITHIUM2_CLEAN_decompose_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_decompose" [] false PQCLEAN_DILITHIUM2_CLEAN_decompose_setup (prover "decompose");
+    // Status: succeeds
+    PQCLEAN_DILITHIUM2_CLEAN_decompose_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_decompose" [] false PQCLEAN_DILITHIUM2_CLEAN_decompose_setup (prover "decompose");
     
    let PQCLEAN_DILITHIUM2_CLEAN_poly_decompose_setup = do {
       (a0p, a0) <- fresh_poly "a0";
