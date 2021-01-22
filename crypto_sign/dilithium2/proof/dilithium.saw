@@ -357,7 +357,7 @@ let prove_dilithium MODULE MODE = do {
       (seedp, seed) <- fresh_bytes "seed" SEEDBYTES;
       nonce <- crucible_fresh_var "nonce" (llvm_int 16);
       crucible_execute_func [ap, seedp, tm nonce];
-      crucible_points_to seedp (tm seed);
+      //crucible_points_to ap (tm seed);
       assign_fresh_poly ap "a";
     };
     // NB: we aren't going to verify this function
@@ -670,7 +670,8 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_postcond {{ standard32Poly res }};
     };
     // Status: succeeds
-    PQCLEAN_DILITHIUM2_CLEAN_poly_freeze_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_freeze" [PQCLEAN_DILITHIUM2_CLEAN_freeze_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_freeze_setup (prover "Poly_freeze");
+    // Assuming it for now to speed up verification 
+    PQCLEAN_DILITHIUM2_CLEAN_poly_freeze_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_freeze" [PQCLEAN_DILITHIUM2_CLEAN_freeze_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_freeze_setup (prover "Poly_freeze");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_freeze_setup = do {
       (ap, a) <- fresh_polyvec "a" K;
@@ -703,7 +704,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     };
     // Status: succeeds
     // Assuming it for now to speed up verification 
-    PQCLEAN_DILITHIUM2_CLEAN_poly_make_hint_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_make_hint" [PQCLEAN_DILITHIUM2_CLEAN_make_hint_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_make_hint_setup (prover "Poly_make_hint");
+    PQCLEAN_DILITHIUM2_CLEAN_poly_make_hint_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_make_hint" [PQCLEAN_DILITHIUM2_CLEAN_make_hint_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_make_hint_setup (prover "Poly_make_hint");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_make_hint_setup = do {
       hp <- alloc_polyvec K;
@@ -714,7 +715,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_return (tm {{ zext (makeHintPolyVecNew (ipvToPv v0, ipvToPv v1)) : [32] }});
     };
     // Status: succeeds
-    PQCLEAN_DILITHIUM2_CLEAN_polyveck_make_hint_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_make_hint" [PQCLEAN_DILITHIUM2_CLEAN_poly_make_hint_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_make_hint_setup (prover "Polyveck_make_hint");
+    PQCLEAN_DILITHIUM2_CLEAN_polyveck_make_hint_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_make_hint" [PQCLEAN_DILITHIUM2_CLEAN_poly_make_hint_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_make_hint_setup (prover "Polyveck_make_hint");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_ntt_setup = do {
       (vp, v) <- fresh_polyvec "v" K;
@@ -867,7 +868,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_return (tm {{ 0 : [32] }});
     };
     // Status: runs forever and depends on shake256 etc 
-    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_method_spec <- assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature" 
+    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature" 
                                                                   [ PQCLEAN_DILITHIUM2_CLEAN_challenge_method_spec, 
                                                                     PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec, 
                                                                     PQCLEAN_DILITHIUM2_CLEAN_pack_sig_method_spec, 
@@ -909,7 +910,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_return (tm {{ 0 : [32] }});
     };
     // Status: runs forever
-    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_method_spec <- assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_setup 1) (prover "crypto_sign");
+    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_setup 1) (prover "crypto_sign");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_setup = do {
       rp <- alloc_bytes POLT1_SIZE_PACKED;
@@ -933,7 +934,8 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
 
     };
     // Status: succeeds
-    PQCLEAN_DILITHIUM2_CLEAN_pack_pk_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_pk" [PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_pk_setup (prover "packPk");
+    // assuming it for now to speed up proving other functions
+    PQCLEAN_DILITHIUM2_CLEAN_pack_pk_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_pk" [PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_pk_setup (prover "packPk");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack_setup = do {
       rp <- alloc_bytes POLETA_SIZE_PACKED;
@@ -976,10 +978,13 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     // Assuming it for now to speed up verification of other functions
     PQCLEAN_DILITHIUM2_CLEAN_pack_sk_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_sk" [PQCLEAN_DILITHIUM2_CLEAN_polyeta_pack_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyt0_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_sk_setup (prover "pack_sk");
     let PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_eta_setup = do {
-      ap <- alloc_poly;
+      (ap, a) <- fresh_poly "a";
       (seedp, seed) <- fresh_bytes "seed" SEEDBYTES;
       nonce <- crucible_fresh_var "nonce" (llvm_int 16);
+      //crucible_precond {{ standardBytes seed }};
       crucible_execute_func [ap, seedp, tm nonce];
+      //(_, res) <- fresh_poly "res";
+      //crucible_points_to ap (tm res);
       crucible_points_to ap (tm {{ pToIP (polyUniformEta seed nonce)}});
       //assign_fresh_poly ap "a";
     };
@@ -1035,9 +1040,10 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair_setup = do {
       pkp <- alloc_bytes CRYPTO_PUBLICKEYBYTES;
       skp <- alloc_bytes 2800; //CRYPTO_SECRETKEYBYTES;
-      crucible_execute_func [pkp, skp];
       let sbytes = eval_int {{ 3 * `SEEDBYTES : [8] }};
-      seed <- crucible_fresh_var "seed" (llvm_array sbytes i8);
+      (seedp, seed) <- fresh_bytes "seed" sbytes;
+      //crucible_precond {{ standardBytes seed }};
+      crucible_execute_func [pkp, skp];
       let res = {{ gen (join seed) }};
       let pk = {{ res.0 }};
       let sk = {{ res.1 }};
@@ -1045,12 +1051,24 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       let sk = {{ packSk (split sk.rho) (split sk.key) (split sk.tr) sk.s1 sk.s2 sk.t0 }};
       //pk <- crucible_fresh_var "pk" (llvm_array CRYPTO_PUBLICKEYBYTES i8);
       //sk <- crucible_fresh_var "pk" (llvm_array CRYPTO_SECRETKEYBYTES i8);
-      crucible_points_to pkp (tm {{ split pk }});
-      crucible_points_to skp (tm {{ split sk }});
+      crucible_points_to pkp (tm {{ split pk : [_][8] }});
+      crucible_points_to skp (tm {{ split sk : [_][8] }});
       crucible_return (tm {{ 0 : [32] }});
     };
     // NB: we aren't going to verify this function as it uses random seed.
-    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair" [PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec, PQCLEAN_DILITHIUM2_CLEAN_pack_pk_method_spec, PQCLEAN_DILITHIUM2_CLEAN_pack_sk_method_spec, PQCLEAN_DILITHIUM2_CLEAN_poly_invntt_montgomery_method_spec, PQCLEAN_DILITHIUM2_CLEAN_poly_reduce_method_spec, PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_eta_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_add_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_freeze_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_power2round_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyvecl_ntt_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery_method_spec,randombytes_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair_setup (prover "keypair");
+    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair" [ PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec, 
+                                                                                                                                PQCLEAN_DILITHIUM2_CLEAN_pack_pk_method_spec,
+                                                                                                                                PQCLEAN_DILITHIUM2_CLEAN_pack_sk_method_spec,
+                                                                                                                                PQCLEAN_DILITHIUM2_CLEAN_poly_invntt_montgomery_method_spec,
+                                                                                                                                PQCLEAN_DILITHIUM2_CLEAN_poly_reduce_method_spec,
+                                                                                                                                PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_eta_method_spec,
+                                                                                                                                PQCLEAN_DILITHIUM2_CLEAN_polyveck_add_method_spec,
+                                                                                                                                PQCLEAN_DILITHIUM2_CLEAN_polyveck_freeze_method_spec,
+                                                                                                                                PQCLEAN_DILITHIUM2_CLEAN_polyveck_power2round_method_spec,
+                                                                                                                                PQCLEAN_DILITHIUM2_CLEAN_polyvecl_ntt_method_spec,
+                                                                                                                                PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery_method_spec,
+                                                                                                                                randombytes_method_spec 
+                                                                                                                              ] false PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair_setup (prover "keypair");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_invntt_montgomery_setup = do {
       (ap, a) <- fresh_polyvec "a" K;
