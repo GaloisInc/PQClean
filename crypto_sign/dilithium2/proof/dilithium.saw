@@ -281,6 +281,10 @@ let prove_dilithium MODULE MODE = do {
 
         skTupleToRec : ([SEEDBYTES][8], [SEEDBYTES][8], [CRHBYTES][8], PolyVec L, PolyVec K, IntPolyVec K) -> SecretKey
         skTupleToRec t = { rho = join t.0, key = join t.1, tr = join t.2, s1 = t.3, s2 = t.4, t0 = t.5 }
+
+        pkBytesToRec : [CRYPTO_PUBLICKEYBYTES][8] -> PublicKey
+        pkBytesToRec pk = { rho = join rho, t1 = t1 }
+          where (rho, t1) = unpackPk pk
     
     }};
 
@@ -910,7 +914,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_return (tm {{ 0 : [32] }});
     };
     // Status: runs forever
-    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_setup 1) (prover "crypto_sign");
+    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_setup 1) (prover "crypto_sign");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_setup = do {
       rp <- alloc_bytes POLT1_SIZE_PACKED;
@@ -1170,7 +1174,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       (ap, a) <- fresh_bytes "a" POLZ_SIZE_PACKED;
       crucible_precond {{ standardBytes a }};
       crucible_execute_func [rp, ap];
-      let res = {{ [ polyZUnpack a ] }};
+      let res = {{  pToIP (polyZUnpack a) }};
       crucible_points_to rp (tm res);
       crucible_postcond {{ standard32Poly res }};
     };
