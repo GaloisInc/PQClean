@@ -1140,10 +1140,11 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_points_to wp (tm {{pvToIpv (useHintPolyVec (ipvToPv u, ipvToPv h))}});
     };
     // Status: succeeds
-    PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint" [PQCLEAN_DILITHIUM2_CLEAN_poly_use_hint_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint_setup (prover "Polyveck_use_hint");
+    // assuming it for now to speed up proving other functions
+    PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint" [PQCLEAN_DILITHIUM2_CLEAN_poly_use_hint_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint_setup (prover "Polyveck_use_hint");
     
     let PQCLEAN_DILITHIUM2_CLEAN_polyt1_unpack_setup = do {
-      (rp, r) <- fresh_poly "r";
+      rp <- alloc_poly;
       (ap, a) <- fresh_bytes "a" POLT1_SIZE_PACKED; 
       crucible_precond{{ standardBytes a }};
       crucible_execute_func [rp, ap];
@@ -1156,14 +1157,14 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     
     let PQCLEAN_DILITHIUM2_CLEAN_unpack_pk_setup = do {
       rhop <- alloc_bytes SEEDBYTES;
-      (t1p, t1) <- fresh_polyvec "t1" K;
+      t1p <- alloc_polyvec K;
       (pkp, pk) <- fresh_bytes "pk" CRYPTO_PUBLICKEYBYTES;
-      crucible_precond {{ standardBytes pk }};
+      crucible_precond {{ standardBytes (drop`{SEEDBYTES} pk) }};
       crucible_execute_func [rhop, t1p, pkp];
-      let res0 = {{ (unpackPk pk).0 }};
-      crucible_points_to rhop (tm res0);
-      let res1 = {{ pvToIpv (unpackPk pk).1 }};
-      crucible_points_to t1p (tm res1);
+      let rho = {{ (unpackPk pk).0 }};
+      let t1 = {{ pvToIpv (unpackPk pk).1 }};
+      crucible_points_to rhop (tm rho);
+      crucible_points_to t1p (tm t1);
     };
     // Status: succeeds
     // assuming it for now to speed up proving other functions
@@ -1174,7 +1175,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       (ap, a) <- fresh_bytes "a" POLZ_SIZE_PACKED;
       crucible_precond {{ standardBytes a }};
       crucible_execute_func [rp, ap];
-      let res = {{  pToIP (polyZUnpack a) }};
+      let res = {{ pToIP (polyZUnpack a) }};
       crucible_points_to rp (tm res);
       crucible_postcond {{ standard32Poly res }};
     };
@@ -1186,47 +1187,44 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       hp <- alloc_polyvec K;
       cp <- alloc_poly;
       (sigp, sig) <- fresh_bytes "sig" CRYPTO_BYTES;
-      crucible_precond {{ standardBytes sig }};
+      crucible_precond {{ standardBytes (sig@@[0..(L - 1) * POLZ_SIZE_PACKED - 1]) }};
       crucible_execute_func [ zp, hp, cp, sigp ];
-      let z = {{ [ [ [ c ] | c <- (unpackSig sig).0 ] ] }};
-      crucible_points_to zp (tm z);
+      crucible_points_to zp (tm {{ pvToIpv (unpackSig sig).0 }});
       crucible_points_to hp (tm {{ pvToIpv (unpackSig sig).1 }});
       crucible_points_to cp (tm {{ pToIP (unpackSig sig).2 }});
     };
     // Status: applies override and symbolic simulation completes successfully but then hangs on even with an overnight run
     // assume it for now
-    PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_unpack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_setup 
-                                                    (prover_with_unints ["PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec"] "unpack_sig");
+    PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_unpack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_setup (prover "unpack_sig");
+                                                     //(prover_with_unints ["PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec"] "unpack_sig");
     
-     let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_setup = do {
-      let siglen = CRYPTO_BYTES; // TODO: make configurable
-      let mlen = 128; // TODO: make configurable
+     let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_setup mlen = do {
+      let siglen = CRYPTO_BYTES;
       (sigp, sig) <- fresh_bytes "sig" siglen;
       (mp, m) <- fresh_bytes "m" mlen;
       (pkp, pk) <- fresh_bytes "pk" CRYPTO_PUBLICKEYBYTES;
+      crucible_precond {{ standardBytes (drop`{SEEDBYTES} pk) /\ standardBytes (sig@@[0..(L - 1) * POLZ_SIZE_PACKED - 1]) }};
       crucible_execute_func [sigp, tm {{ `siglen : [64] }}, mp, tm {{ `mlen : [64] }}, pkp];
-      ret <- crucible_fresh_var "return" (llvm_int 32);
-      crucible_return (tm ret);
+      let res = {{ verify (pkBytesToRec pk) (join m) (unpackSig sig) }};
+      crucible_return (tm {{ if res then zero else ~zero : [32] }});
     };
-    // TODO: All overrides failed during structural matching
-    // Name: PQCLEAN_DILITHIUM2_CLEAN_unpack_pk
-    // Also uses shake256
-    // Status: unknown (missing postcondition)
-    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec <- assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify" [PQCLEAN_DILITHIUM2_CLEAN_challenge_method_spec, PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec, PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_method_spec, PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_csubq_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_invntt_montgomery_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_ntt_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_reduce_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_shiftl_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_sub_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyvecl_ntt_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery_method_spec, PQCLEAN_DILITHIUM2_CLEAN_unpack_pk_method_spec, PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_setup (prover "crypto_sign_verify");
+    // Status: fails applying override `unpack_sig`
+    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify" [PQCLEAN_DILITHIUM2_CLEAN_challenge_method_spec, PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec, PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_method_spec, PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_csubq_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_invntt_montgomery_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_ntt_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_reduce_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_shiftl_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_sub_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyvecl_ntt_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery_method_spec, PQCLEAN_DILITHIUM2_CLEAN_unpack_pk_method_spec, PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_setup 1) (prover "crypto_sign_verify");
 
-    let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_setup = do {
-      let smlen = 128; // TODO: make configurable
-      mp <- alloc_bytes smlen;
+    let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_setup mlen = do {
+      let smlen = eval_int {{ `CRYPTO_BYTES + `mlen : [64] }}; 
+      mp <- alloc_bytes mlen;
       mlenp <- crucible_alloc i64;
       (smp, sm) <- fresh_bytes "sm" smlen;
       (pkp, pk) <- fresh_bytes "pk" CRYPTO_PUBLICKEYBYTES;
-      crucible_execute_func [mp, mlenp, smp, tm {{ `smlen : [64] }}, pkp];
-      ret <- crucible_fresh_var "return" (llvm_int 32);
-      crucible_return (tm ret);
+      crucible_precond {{ standardBytes (drop`{SEEDBYTES} pk) /\ standardBytes (sm@@[0..(L - 1) * POLZ_SIZE_PACKED - 1]) }};
+      crucible_execute_func [mp, mlenp, smp, (tm {{ `smlen : [64] }}), pkp];
+      let res = {{ open (pkBytesToRec pk) sm }};
+      crucible_return (tm {{ if res then zero else ~zero : [32] }});
     };
-    // TODO: Pointer passed to `memset` didn't point to a mutable allocation with enough space.
-    // Status: unknown (missing postcondition)
-    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_setup (prover "crypto_sign_open");
+    // Status: counter example
+    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_setup 1) (prover "crypto_sign_open");
+    
     return ();
 };
 
