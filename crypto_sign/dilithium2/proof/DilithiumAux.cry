@@ -26,3 +26,169 @@ property decomposeEq (a : [23]) = 0 <$ a /\ a <$ `Q ==> sext a0 == a0n /\ sext a
   where
     (a1, a0) = decompose a
     (a1n, a0n) = decomposeNew (sext a)
+
+
+// Cryptol utilities
+   
+montgomeryReduce : [64] -> [32]
+montgomeryReduce a = drop ((a + (((a * QINV) && 0x00000000ffffffff) * `Q)) >> 32)
+
+reduce32 : [32] -> [32]
+reduce32 a = (a && 0x007FFFFF) + (b << 13) - b
+  where b = a >> 23
+
+csubq : [32] -> [32]
+csubq a = b + ((b >>$ 31) && `Q)
+  where b = a - `Q
+
+freeze a = csubq (reduce32 a)
+
+type ImpPoly = [1][N][32]
+type ImpPolyVec dim = [1][dim]ImpPoly
+
+ipToP : ImpPoly -> Poly
+ipToP [p] = map (drop `{UInt32T - QBits}) p
+
+pToIP : Poly -> ImpPoly
+pToIP p = [ map (\i -> sext i) p ]
+
+ipvToPv : {dim} (fin dim, dim >= 1) => ImpPolyVec dim -> PolyVec dim
+ipvToPv [intp] = map ipToP intp
+
+pvToIpv : {dim} (fin dim, dim >= 1) => PolyVec dim -> ImpPolyVec dim
+pvToIpv pvec = [map pToIP pvec]
+
+pmToIpm : {m, n} (fin m, fin n, n >= 1, m >= 1) => [m] (PolyVec n) -> [m] (ImpPolyVec n)
+pmToIpm pmat = [ pvToIpv pvec | pvec <- pmat ]
+
+ipmToPm: {m, n} (fin m, fin n, n >= 1, m >=1 ) => [m](ImpPolyVec n) ->  [m](PolyVec n)
+ipmToPm pmat = [ ipvToPv pvec | pvec <- pmat ]
+
+polyAddImp : ImpPoly -> ImpPoly -> ImpPoly
+polyAddImp = (+)
+
+polyVecAddImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n -> ImpPolyVec n
+polyVecAddImp [xs] [ys] = [ [ polyAddImp xp yp | xp <- xs | yp <- ys ] ]
+
+polySubImp : ImpPoly -> ImpPoly -> ImpPoly
+polySubImp xs ys = [ [ x + 2*`Q - y | x <- xs@0 | y <- ys@0 ] ]
+
+polyVecSubImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n -> ImpPolyVec n
+polyVecSubImp [xs] [ys] = [ [ polySubImp xp yp | xp <- xs | yp <- ys ] ]
+
+polyReduceImp : ImpPoly -> ImpPoly
+polyReduceImp xs = [ map reduce32 (xs@0) ]
+
+polyVecReduceImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n
+polyVecReduceImp [xs] = [ map polyReduceImp xs ]
+
+polyCsubqImp : ImpPoly -> ImpPoly
+polyCsubqImp xs = [ map csubq (xs@0) ]
+
+polyVecCsubqImp : {n}(fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n
+polyVecCsubqImp [xs] = [ map polyCsubqImp xs ]
+
+polyFreezeImp : ImpPoly -> ImpPoly
+polyFreezeImp xs = [map freeze (xs@0)]
+
+polyVecFreezeImp : {n}(fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n
+polyVecFreezeImp [xs] = [ map polyFreezeImp xs ]
+
+polyShiftlImp : ImpPoly -> ImpPoly
+polyShiftlImp xs = [ [ x << `D | x <- (xs@0)] ]
+
+polyVecShiftlImp : {dim} [dim]ImpPoly -> [dim]ImpPoly
+polyVecShiftlImp = map polyShiftlImp
+
+coeffBound low high c = low <$ c /\ c <$ high
+coeffBoundGEq low high c = low <=$ c /\ c <$ high
+coeffBoundLGEq low high c = low <=$ c /\ c <=$ high
+coeffBoundLEq low high c = low <$ c /\ c <=$ high
+
+polyBoundLEq : [32] -> [32] -> ImpPoly -> Bit
+polyBoundLEq low high [xs] = all (coeffBoundLEq low high) xs
+
+polyBoundLGEq : [32] -> [32] -> ImpPoly -> Bit
+polyBoundLGEq low high [xs] = all (coeffBoundLGEq low high) xs
+
+polyBound : [32] -> [32] -> ImpPoly -> Bit
+polyBound low high [xs] = all (coeffBound low high) xs
+
+polyBoundGEq : [32] -> [32] -> ImpPoly -> Bit
+polyBoundGEq low high [xs] = all (coeffBoundGEq low high) xs
+
+polyVecBound : {m} (fin m, m >= 1) => [32] -> [32] -> ImpPolyVec m  -> Bit
+polyVecBound low high [xs] = and [ (polyBound low high p) | p <- xs ]
+
+polyVecBoundGEq : {m} (fin m, m >= 1) => [32] -> [32] -> ImpPolyVec m  -> Bit
+polyVecBoundGEq low high [xs] = and [ (polyBoundGEq low high p) | p <- xs ]
+
+polyVecBoundLEq : {m} (fin m, m >= 1) => [32] -> [32] -> ImpPolyVec m  -> Bit
+polyVecBoundLEq low high [xs] = and [ (polyBoundLEq low high p) | p <- xs ]
+
+packPolyEtaImp : ImpPoly -> [PolEtaSizePacked][8]
+packPolyEtaImp a = split (packPolyEta (ipToP a))
+
+packPkImp : [SeedBytes][8] -> ImpPolyVec K -> [CryptoPublicKeyBytes][8]
+packPkImp rho t1 = split (packPk rho (ipvToPv t1))
+
+nttNew : Poly -> NttPoly
+nttNew p = nttp
+    where
+    r k = mod_pow(`Q, ROOTOFUNITY, k)
+    exponents = join [ [zext i, (256+(zext i))] | i <- [reverse ((128+i) : [8]) | i <- [0..127] ] ]
+    nttp = [ (sum ([ (mod_mul(`Q, (p@idx), (mod_pow (`Q, (r k), i)))) 
+            | idx <- [0..(N - 1)]:[N][width N] 
+            | i <- [0..(N - 1)]:[N][23]]))
+            | k <- exponents
+            ]
+
+nttImp : ImpPoly -> ImpPoly
+nttImp a = pToIP (nttNew (ipToP a))
+
+nttVecImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n
+nttVecImp [xs] = [map nttImp xs]
+
+nttInvImp : ImpPoly -> ImpPoly
+nttInvImp a = pToIP (nttInv (ipToP a))
+
+nttInvVecImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n
+nttInvVecImp [xs] = [ map nttInvImp xs ]
+
+//standard a = a < `Q
+
+standardByte a = 0 <$ (zext a : [23]) /\ (zext a : [23]) <$ `Q 
+
+standardBytes a = all standardByte a
+
+//standardPoly [p] = all standard p
+//standardPolyVec [v] = all standardPoly v
+//standardPolyVecMat [v] = all standardPolyVec v
+
+standard32 a = 0 <$ smalla /\ smalla <$ `Q /\ a == sext smalla
+  where smalla = drop a : [23]
+standard32Poly [p] = all standard32 p
+standard32PolyVec [v] = all standard32Poly v
+
+reducedBound a = 0 <=$ a /\ a <$ 2*`Q
+reducedBoundPoly [p] = all reducedBound p
+reducedBoundPolyVec [v] = all reducedBoundPoly v
+
+bitCoeff a = a == 0 \/ a== 1
+bitCoeffPoly [a] = all bitCoeff a
+bitCoeffPolyVec [a] = all bitCoeffPoly a
+
+byteBound low high c = low <= c /\ c <= high
+
+addQToPoly : Poly -> ImpPoly
+addQToPoly p = [ [ (sext c0) + `Q | c0 <- p] ]
+
+addQToPolyVec : {n} (fin n, n >= 1) => PolyVec n -> ImpPolyVec n
+addQToPolyVec pv = [ map addQToPoly pv ]
+
+skTupleToRec : ([SeedBytes][8], [SeedBytes][8], [CrhBytes][8], PolyVec L, PolyVec K, IntPolyVec K) -> SecretKey
+skTupleToRec t = { rho = join t.0, key = join t.1, tr = join t.2, s1 = t.3, s2 = t.4, t0 = t.5 }
+
+pkBytesToRec : [CryptoPublicKeyBytes][8] -> PublicKey
+pkBytesToRec pk = { rho = join rho, t1 = t1 }
+  where (rho, t1) = unpackPk pk
