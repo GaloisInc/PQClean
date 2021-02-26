@@ -1,5 +1,13 @@
-/* Dilithium Verification */
-/* Authors: Ajay Kumar Eeralla and Aaron Tomb */
+/*
+   This module implements the digital signature scheme Dilithium
+   submitted to the NIST post-quantum project.
+
+   See https://pq-crystals.org/dilithium/data/dilithium-specification.pdf
+   Copyright (c) 2018-2021, Galois Inc.
+   www.cryptol.net
+   You can freely use this source code for educational purposes.
+   Authors: Ajay Kumar Eeralla and Aaron Tomb
+*/
 
 /* From now on, I follow the following naming conventions:
 * types, modules -- upper camel case
@@ -16,7 +24,7 @@ enable_lax_arithmetic;
 //enable_smt_array_memory_model;
 
 dilithium2 <- llvm_load_module "../clean/bc/libdilithium2_clean.a.bc";
-import "deps/cryptol-specs/Primitive/Asymmetric/Signature/DilithiumR2BV.cry";
+import "deps/cryptol-specs/Primitive/Asymmetric/Signature/Dilithium/Round2/DilithiumMedium.cry";
 import "deps/cryptol-specs/Common/mod_arith.cry";
 import "deps/cryptol-specs/Common/bv.cry";
 import "DilithiumAux.cry";
@@ -221,7 +229,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_points_to rp (tm res);
     };
     // Status: succeeds
-    PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyz_pack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_setup (prover "Polyz_pack");
+    PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyz_pack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_setup (prover "Polyz_pack");
 
     let PQCLEAN_DILITHIUM2_CLEAN_pack_sig_setup = do {
       sigp <- alloc_bytes CRYPTO_BYTES;
@@ -236,7 +244,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_points_to sigp (tm {{ split (packSig (zPV, hPV, cP)) : [_][8] }});
     };
     // Status: applies override and symbolic simulation completes successfully but then hangs on even with an overnight run
-    PQCLEAN_DILITHIUM2_CLEAN_pack_sig_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_sig_setup (assume_unsat);
+    PQCLEAN_DILITHIUM2_CLEAN_pack_sig_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_sig_setup (offline_smtlib2 "pack_sig"); //(prover "pack_sig");
                                                      //(prover_with_unints ["PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_method_spec"] "pack_sig"); //(quickcheck 2); //(prover "pack_sig");
 
     let PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_setup = do {
@@ -754,7 +762,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       // the input coefficients are in { 0,..., 2^^9-1 }
       crucible_precond {{ polyBoundGEq 0 512 a }};
       crucible_execute_func [rp, ap];
-      crucible_points_to rp (tm {{ split (polyPack (ipToP a)):[_][8] }});
+      crucible_points_to rp (tm {{ split (polyT1Pack (ipToP a)):[_][8] }});
     };
     // Status: succeeds
     PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_setup (prover "Polyt1_pack");
