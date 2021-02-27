@@ -13,11 +13,11 @@ import Common::mod_arith
 import Primitive::Asymmetric::Signature::Dilithium::Round2::DilithiumMedium
 
 // Dilithium II (Medium) parameters
-type K = 4
-type L = 3
-ETA = 6
-BETA = 325
-type Omega = 80
+//type K = 4
+//type L = 3
+//ETA = 6
+//BETA = 325
+//type Omega = 80
 
 // a1 and a0 represent low, high order bits respectively.
 decomposePc (a1 : [23]) (a0 : [23]) (a : [23]) =
