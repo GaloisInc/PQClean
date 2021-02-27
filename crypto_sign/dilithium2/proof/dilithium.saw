@@ -9,14 +9,6 @@
    Authors: Ajay Kumar Eeralla and Aaron Tomb
 */
 
-/* From now on, I follow the following naming conventions:
-* types, modules -- upper camel case
-* constants -- upper flat case
-* functions, properties -- camel case
-* add a space after/before opening/closing bracket of lists, records
-* add a space before and after an infix operator
-*/
-
 // Note: have to do this before llvm_load_module!
 enable_lax_arithmetic;
 
@@ -39,14 +31,6 @@ let verify' = crucible_llvm_verify;
 let assume m n ovs sat setup prover =
   crucible_llvm_unsafe_assume_spec m n setup;
 
-let GLOBALS = do {
-  crucible_alloc_global "zetas";
-  crucible_alloc_global "zetas_inv";
-  crucible_points_to (crucible_global "zetas") (crucible_global_initializer "zetas");
-  crucible_points_to (crucible_global "zetas_inv") (crucible_global_initializer "zetas_inv");
-  //crucible_points_to (crucible_global "KeccakF_RoundConstants") (crucible_global_initializer "KeccakF_RoundConstants");
-};
-
 let unint_prover nm unints =
   unint_yices unints;
   //assume_unsat;
@@ -58,8 +42,10 @@ let prover nm = unint_prover nm [];
 let prover_with_unints unints nm = offline_unint_smtlib2 unints nm;
 
 let i8 = llvm_int 8;
+let i16 = llvm_int 16;
 let i32 = llvm_int 32;
 let i64 = llvm_int 64;
+let toInt = eval_int;
 
 let poly_type = llvm_array 1 (llvm_type "%struct.poly");
 let polyvec_type n = llvm_array 1 (llvm_array n poly_type);
@@ -94,44 +80,41 @@ let prove_dilithium MODULE MODE = do {
 
 // The following parameters from params.h
 
-    let SEEDBYTES = 32;
-    let CRHBYTES = 48;
-    let N = 256;
-    let NDIV2 = 128;
-    let Q = 8380417;
-    let QBITS = 23;
-    let ROOTOFUNITY = 1753;
-    let D = 14;
-    let GAMMA1 = eval_int {{ ((`Q : [32]) - 1) / 16 }};
-    let GAMMA2 = eval_int {{ (`GAMMA1 : [32]) / 2 }};
-    let ALPHA = eval_int {{ 2 * (`GAMMA2 : [32]) }};
-    let QINV = 4236238847;
-    let M = eval_int {{ (2 ^^ 32) % `Q : [32] }}; //4193792
+    let SEEDBYTES = toInt {{ `SeedBytes : [32] }};
+    let CRHBYTES = toInt {{ `CrhBytes : [32] }};
+    //let N = 256;
+    //let NDIV2 = 128;
+    let Q = toInt {{ `Q : [32] }}; //8380417;
+    let QBITS = toInt {{ `QBits : [32] }}; //23;
+    //let ROOTOFUNITY = 1753;
+    let D = toInt {{ `D : [32] }}; //14;
+    let GAMMA1 = toInt {{ ((`Q : [32]) - 1) / 16 }};
+    let GAMMA2 = toInt {{ (`GAMMA1 : [32]) / 2 }};
+    let ALPHA = toInt {{ 2 * (`GAMMA2 : [32]) }};
+    //let QINV = 4236238847;
+    let M = toInt {{ (2 ^^ 32) % `Q : [32] }}; //4193792
   
     // DilithiumII parameters
-
-    let K = 4;
-    let L = 3;
-    let ETA = 6;
-    let SETABITS = 4;
-    let BETA = 325;
-    let OMEGA = 80;
-
-    let POLT1_SIZE_PACKED = eval_int {{ (`N : [32]) * ((`QBITS : [32]) - (`D : [32])) / 8 }};
-    let POLT0_SIZE_PACKED = eval_int {{ (`N : [32]) * (`D : [32]) / 8  }}; // 448
-    let POLETA_SIZE_PACKED = eval_int {{ ((`N : [32]) * (`SETABITS : [32])) / 8  }}; // 128
-    let POLZ_SIZE_PACKED = eval_int {{ (`N : [32]) * ((`QBITS : [32]) - 3) / 8 }}; 
-    let POLW1_SIZE_PACKED = eval_int {{ (`N : [32]) * 4 / 8 }};
-
-    let CRYPTO_PUBLICKEYBYTES = eval_int {{ (`SEEDBYTES : [32]) + (`K : [32]) * (`POLT1_SIZE_PACKED : [32]) }};
-    let CRYPTO_SECRETKEYBYTES =  eval_int  {{ 2 * (`SEEDBYTES : [32]) + (((`L : [32]) + (`K : [32])) * (`POLETA_SIZE_PACKED : [32])) + (`CRHBYTES:[32]) + (`K : [32])*(`POLT0_SIZE_PACKED : [32]) }}; //2800; //2*32 + (3+4) 128 + 48 + 4*448 
-    let CRYPTO_BYTES = eval_int {{ (`L : [32])*(`POLZ_SIZE_PACKED : [32]) + ((`OMEGA : [32]) + (`K : [32])) + ((`N : [32])/8 + 8) }};
+    let K = toInt {{ `K : [8] }} ;
+    let L = toInt {{ `L : [8] }};
+    let ETA = toInt {{ ETA : [8] }};
+    let SETABITS = toInt {{ `SetaBits : [8] }};
+    let BETA = toInt {{ BETA : [32] }};
+    let OMEGA = toInt {{ `Omega : [32] }};
+    let POLT1_SIZE_PACKED = toInt {{ `PolT1SizePacked : [32] }}; 
+    let POLT0_SIZE_PACKED = toInt {{ `PolT0SizePacked : [32] }}; 
+    let POLETA_SIZE_PACKED = toInt {{ `PolEtaSizePacked : [32] }}; 
+    let POLZ_SIZE_PACKED = toInt {{ `PolZSizePacked : [32] }}; 
+    let POLW1_SIZE_PACKED = POLETA_SIZE_PACKED; 
+    let CRYPTO_PUBLICKEYBYTES = toInt {{ `CryptoPublicKeyBytes : [32] }}; 
+    let CRYPTO_SECRETKEYBYTES =  toInt {{ `CryptoSecretKeyBytes : [32] }}; 
+    let CRYPTO_BYTES = toInt {{ `SigSizePacked : [32] }}; 
 
      let randombytes_setup = do {
-      let sizetm = {{ 3 * `SEEDBYTES : [64] }};
-      bp <- alloc_bytes (eval_int sizetm);
-      crucible_execute_func [bp, tm sizetm];
-      b <- crucible_fresh_var "b" (llvm_array (eval_int sizetm) i8);
+      let nb = toInt {{ 3 * `SEEDBYTES : [64] }};
+      bp <- alloc_bytes nb;
+      crucible_execute_func [bp, tm {{ `nb : [64] }}];
+      b <- crucible_fresh_var "b" (llvm_array nb i8);
       crucible_points_to bp (tm b);
       crucible_return (tm {{ 0 : [32] }});
     };
@@ -142,7 +125,7 @@ let prove_dilithium MODULE MODE = do {
       rp <- alloc_bytes 128;
       (ap, a) <- fresh_poly "a";
       crucible_execute_func [rp, ap];
-      res <- crucible_fresh_var "res" (llvm_array 128 (llvm_int 8));
+      res <- crucible_fresh_var "res" (llvm_array 128 i8);
       crucible_points_to rp (tm res);
       crucible_points_to rp (tm res);
       crucible_postcond {{ join res == join [ join [ xs@0 || (xs@1 << 4) | xs <- split p : [128][2][_] ] | p <- (map (\p -> map (\x -> drop`{24} x:[8]) p) a) ] }};
@@ -188,7 +171,7 @@ let prove_dilithium MODULE MODE = do {
       arg1_star <- crucible_fresh_var "arg1" (llvm_array 34 (llvm_int 8));
       arg1 <- crucible_alloc (llvm_array 34 (llvm_int 8));
       crucible_points_to arg1 (tm arg1_star);
-      arg2 <- crucible_fresh_var "arg2" (llvm_int 16);
+      arg2 <- crucible_fresh_var "arg2" i16;
       crucible_execute_func [arg0, arg1, (tm arg2)];
       //crucible_postcond {{ True == True }};
     };
@@ -198,7 +181,7 @@ let prove_dilithium MODULE MODE = do {
  let PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_setup = do {
       ap <- alloc_poly;
       (seedp, seed) <- fresh_bytes "seed" SEEDBYTES;
-      nonce <- crucible_fresh_var "nonce" (llvm_int 16);
+      nonce <- crucible_fresh_var "nonce" i16;
       crucible_execute_func [ap, seedp, tm nonce];
       //crucible_points_to ap (tm seed);
       assign_fresh_poly ap "a";
@@ -236,7 +219,9 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       (zp, z) <- fresh_polyvec "z" L;
       (hp, h) <- fresh_polyvec "h" K;
       (cp, c) <- fresh_poly "c";
+      //crucible_precond {{ z == zero /\ h == zero /\ c == zero }};
       crucible_precond {{ and [ and [ polyBound (0 - (`GAMMA1 - 1)) (`GAMMA1 - 1) p | p <- o ] | o <- z ] }};
+      crucible_precond {{ standard32PolyVec z }};
       crucible_execute_func [sigp, zp, hp, cp];
       let zPV = {{ ipvToPv z }};
       let hPV = {{ ipvToPv h }};
@@ -244,7 +229,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_points_to sigp (tm {{ split (packSig (zPV, hPV, cP)) : [_][8] }});
     };
     // Status: applies override and symbolic simulation completes successfully but then hangs on even with an overnight run
-    PQCLEAN_DILITHIUM2_CLEAN_pack_sig_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_sig_setup (offline_smtlib2 "pack_sig"); //(prover "pack_sig");
+    PQCLEAN_DILITHIUM2_CLEAN_pack_sig_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_sig_setup (quickcheck 10); //(offline_smtlib2 "pack_sig"); //(prover "pack_sig");
                                                      //(prover_with_unints ["PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_method_spec"] "pack_sig"); //(quickcheck 2); //(prover "pack_sig");
 
     let PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_setup = do {
@@ -346,7 +331,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       arg1_star <- crucible_fresh_var "arg1" (llvm_int 8);
       arg1 <- crucible_alloc (llvm_int 8);
       crucible_points_to arg1 (tm arg1_star);
-      arg2 <- crucible_fresh_var "arg2" (llvm_int 16);
+      arg2 <- crucible_fresh_var "arg2" i16;
       crucible_execute_func [arg0, arg1, tm arg2];
     };
     // NB: we aren't going to verify this function
@@ -355,7 +340,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     let PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_gamma1m1_setup = do {
       ap <- alloc_polyvec L;
       (seedp, seed) <- fresh_bytes "seed" CRHBYTES;
-      nonce <- crucible_fresh_var "nonce" (llvm_int 16);
+      nonce <- crucible_fresh_var "nonce" i16;
       crucible_execute_func [ap, seedp, tm nonce];
       crucible_points_to ap (tm {{ pvToIpv (expandMask (seed, nonce)) }});
     };
@@ -456,7 +441,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       let highBits = {{ sext (res.0) : [32] }}; // high_bits
       let lowBits = {{ sext (res.1) : [32] }}; // low_bits
       crucible_points_to a1p (tm lowBits);
-      crucible_return (tm highBits); // this return correct 
+      crucible_return (tm highBits); 
       crucible_postcond {{ decomposePc res.1 res.0 (drop a) }};
     };
     // Status: succeeds
@@ -647,7 +632,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     let PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack_setup = do {
       rp <- alloc_poly;
       (ap, a) <- fresh_bytes "a" POLETA_SIZE_PACKED ;
-      crucible_precond {{ and [ (byteBound (-`ETA) (`ETA) x) | x <- a ] }};// /\ (`n == `L \/ `n == `K) }}; // /\ (length a) == `n * `POLETA_SIZE_PACKED }};
+      crucible_precond {{ and [ (byteBound (-`ETA) (`ETA) x) | x <- a ] }};
       crucible_execute_func [rp, ap];
       let res = {{ unpackPolyEta a }};
       crucible_points_to rp (tm {{ pToIP res }});
@@ -736,7 +721,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
                                                                   ] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_setup 1) (prover "crypto_sign_signature");
 
     let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_setup mlen = do {
-      let smlen = eval_int {{ `CRYPTO_BYTES + `mlen : [64] }};
+      let smlen = toInt {{ `CRYPTO_BYTES + `mlen : [64] }};
       smp <- alloc_bytes smlen;
       smlenp <- crucible_alloc i64;
       (mp, m) <- fresh_bytes "m" mlen;
@@ -824,7 +809,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     let PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_eta_setup = do {
       (ap, a) <- fresh_poly "a";
       (seedp, seed) <- fresh_bytes "seed" SEEDBYTES;
-      nonce <- crucible_fresh_var "nonce" (llvm_int 16);
+      nonce <- crucible_fresh_var "nonce" i16;
       //crucible_precond {{ standardBytes seed }};
       crucible_execute_func [ap, seedp, tm nonce];
       //(_, res) <- fresh_poly "res";
@@ -884,7 +869,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair_setup = do {
       pkp <- alloc_bytes CRYPTO_PUBLICKEYBYTES;
       skp <- alloc_bytes 2800; //CRYPTO_SECRETKEYBYTES;
-      let sbytes = eval_int {{ 3 * `SEEDBYTES : [8] }};
+      let sbytes = toInt {{ 3 * `SEEDBYTES : [8] }};
       (seedp, seed) <- fresh_bytes "seed" sbytes;
       //crucible_precond {{ standardBytes seed }};
       crucible_execute_func [pkp, skp];
@@ -1030,12 +1015,12 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_precond {{ standardBytes (sig@@[0..(L - 1) * POLZ_SIZE_PACKED - 1]) }};
       crucible_execute_func [ zp, hp, cp, sigp ];
       crucible_points_to zp (tm {{ pvToIpv (unpackSig sig).0 }});
-      crucible_points_to hp (tm {{ pvToIpv (unpackSig sig).1 }});
-      crucible_points_to cp (tm {{ pToIP (unpackSig sig).2 }});
+      //crucible_points_to hp (tm {{ pvToIpv (unpackSig sig).1 }});
+      //crucible_points_to cp (tm {{ pToIP (unpackSig sig).2 }});
     };
     // Status: applies override and symbolic simulation completes successfully but then hangs on even with an overnight run
     // assume it for now
-    PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_unpack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_setup (assume_unsat); //(prover "unpack_sig");
+    PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_method_spec <- verify' MODULE "PQCLEAN_DILITHIUM2_CLEAN_unpack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_setup  (prover "unpack_sig"); //(assume_unsat); //(prover "unpack_sig");
                                                      //(prover_with_unints ["PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec"] "unpack_sig");
     
      let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_setup mlen = do {
@@ -1052,7 +1037,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify" [PQCLEAN_DILITHIUM2_CLEAN_challenge_method_spec, PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec, PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_method_spec, PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_csubq_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_invntt_montgomery_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_ntt_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_reduce_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_shiftl_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_sub_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyvecl_ntt_method_spec, PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery_method_spec, PQCLEAN_DILITHIUM2_CLEAN_unpack_pk_method_spec, PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_setup 1) (prover "crypto_sign_verify");
 
     let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_setup mlen = do {
-      let smlen = eval_int {{ `CRYPTO_BYTES + `mlen : [64] }}; 
+      let smlen = toInt {{ `CRYPTO_BYTES + `mlen : [64] }}; 
       mp <- alloc_bytes mlen;
       mlenp <- crucible_alloc i64;
       (smp, sm) <- fresh_bytes "sm" smlen;
