@@ -9,8 +9,11 @@
    Authors: Ajay Kumar Eeralla and Aaron Tomb
 */
 module DilithiumAux where
+import Array
 import Common::mod_arith
 import Primitive::Asymmetric::Signature::Dilithium::Round2::DilithiumMedium
+
+type ByteArray = Array [64] [8]
 
 // Dilithium II (Medium) parameters
 //type K = 4
@@ -132,6 +135,7 @@ polyBoundLGEq low high [xs] = all (coeffBoundLGEq low high) xs
 polyBound : [32] -> [32] -> ImpPoly -> Bit
 polyBound low high [xs] = all (coeffBound low high) xs
 
+
 polyBoundGEq : [32] -> [32] -> ImpPoly -> Bit
 polyBoundGEq low high [xs] = all (coeffBoundGEq low high) xs
 
@@ -172,6 +176,13 @@ nttInvImp a = pToIP (nttInv (ipToP a))
 
 nttInvVecImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n
 nttInvVecImp [xs] = [ map nttInvImp xs ]
+
+nttPolyMultImp : ImpPoly -> ImpPoly -> ImpPoly
+nttPolyMultImp [p1] [p2] = [ [ montgomeryReduce (zext x * zext y) | x <- p1 | y <- p2 ] ]
+
+nttDotProductImp : { dim } (fin dim) => ImpPolyVec dim -> ImpPolyVec dim -> ImpPoly
+nttDotProductImp [v1] [v2] =
+  foldl polyAddImp zero [ nttPolyMultImp p1 p2 | p1 <- v1 | p2 <- v2 ]
 
 //standard a = a < `Q
 
