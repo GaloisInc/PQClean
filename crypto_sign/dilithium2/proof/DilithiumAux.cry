@@ -85,12 +85,14 @@ pmToIpm pmat = [ pvToIpv pvec | pvec <- pmat ]
 ipmToPm: {m, n} (fin m, fin n, n >= 1, m >=1 ) => [m](ImpPolyVec n) ->  [m](PolyVec n)
 ipmToPm pmat = [ ipvToPv pvec | pvec <- pmat ]
 
+// NB: different from spec, because it doesn't reduce
 polyAddImp : ImpPoly -> ImpPoly -> ImpPoly
 polyAddImp = (+)
 
 polyVecAddImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n -> ImpPolyVec n
 polyVecAddImp [xs] [ys] = [ [ polyAddImp xp yp | xp <- xs | yp <- ys ] ]
 
+// NB: different from spec, because it doesn't reduce
 polySubImp : ImpPoly -> ImpPoly -> ImpPoly
 polySubImp xs ys = [ [ x + 2*`Q - y | x <- xs@0 | y <- ys@0 ] ]
 
@@ -184,26 +186,20 @@ nttDotProductImp : { dim } (fin dim) => ImpPolyVec dim -> ImpPolyVec dim -> ImpP
 nttDotProductImp [v1] [v2] =
   foldl polyAddImp zero [ nttPolyMultImp p1 p2 | p1 <- v1 | p2 <- v2 ]
 
-//standard a = a < `Q
-
-standardByte a = 0 <$ (zext a : [23]) /\ (zext a : [23]) <$ `Q 
+standardByte : [8] -> Bit
+standardByte a = 0 < (zext a : [23]) /\ (zext a : [23]) < `Q 
 
 standardBytes a = all standardByte a
 
-//standardPoly [p] = all standard p
-//standardPolyVec [v] = all standardPoly v
-//standardPolyVecMat [v] = all standardPolyVec v
-
-standard32 a = 0 <$ smalla /\ smalla <$ `Q /\ a == sext smalla
-  where smalla = drop a : [23]
-standard32Poly [p] = all standard32 p
-standard32PolyVec [v] = all standard32Poly v
+standard a = 0 <=$ a /\ a <$ `Q
+standardPoly [p] = all standard p
+standardPolyVec [v] = all standardPoly v
 
 reducedBound a = 0 <=$ a /\ a <$ 2*`Q
 reducedBoundPoly [p] = all reducedBound p
 reducedBoundPolyVec [v] = all reducedBoundPoly v
 
-bitCoeff a = a == 0 \/ a== 1
+bitCoeff a = a == 0 \/ a == 1
 bitCoeffPoly [a] = all bitCoeff a
 bitCoeffPolyVec [a] = all bitCoeffPoly a
 
