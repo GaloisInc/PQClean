@@ -723,7 +723,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_points_to skp (tm sk);
       crucible_return (tm {{ 0 : [32] }});
     };
-    // Status: runs forever and depends on shake256 etc 
+    // Status: hangs applying override for poly_uniform_gamma1m1 (or right after it?)
     // shake256_inc_init
     // shake256_inc_absorb
     // shake256_inc_finalize
@@ -759,7 +759,10 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       smlenp <- crucible_alloc i64;
       (mp, m) <- fresh_bytes "m" mlen;
       (skp, sk) <- fresh_bytes "sk" CRYPTO_SECRETKEYBYTES;
+      let Idx = toInt {{ 2 * `SEEDBYTES + ` CRHBYTES : [32] }};
       crucible_precond {{ `mlen >= 1 }};
+      crucible_precond {{ and [ byteBound (-`ETA) (`ETA) x | x <- sk@@[Idx..1007] ] }};
+      crucible_precond {{ and [ -2^^(`D-1) <$ c /\ c <=$ 2^^(`D-1) | c <- sk@@[1008..CRYPTO_SECRETKEYBYTES - 1] ] }};
       crucible_execute_func [smp, smlenp, mp, tm {{ `mlen : [64] }}, skp];
       let sk_rec = {{ skTupleToRec (unpackSk sk) }};
       let sm = {{ split (cryptoSign sk_rec (join m)) : [smlen][8] }};
@@ -771,8 +774,8 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_points_to skp (tm sk);
       crucible_return (tm {{ 0 : [32] }});
     };
-    // Status: runs forever
-    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_setup 1) (prover "crypto_sign");
+    // Status: succeeds
+    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_setup 1) (prover "crypto_sign");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_setup = do {
       rp <- alloc_bytes POLT1_SIZE_PACKED;
@@ -1038,11 +1041,19 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       hp <- alloc_polyvec K;
       cp <- alloc_poly;
       (sigp, sig) <- fresh_bytes "sig" CRYPTO_BYTES;
-      crucible_precond {{ standardBytes (sig@@[0..(L - 1) * POLZ_SIZE_PACKED - 1]) }};
+      //crucible_precond {{ standardBytes (sig@@[0..(L - 1) * POLZ_SIZE_PACKED - 1]) }};
       crucible_execute_func [ zp, hp, cp, sigp ];
-      crucible_points_to zp (tm {{ pvToIpv (unpackSig sig).0 }});
-      //crucible_points_to hp (tm {{ pvToIpv (unpackSig sig).1 }});
-      //crucible_points_to cp (tm {{ pToIP (unpackSig sig).2 }});
+      let res = {{ unpackSig sig }};
+      let z = {{ pvToIpv res.0 }};
+      let h = {{ pvToIpv res.1 }};
+      let c = {{ pToIP   res.2 }};
+      crucible_points_to zp (tm z);
+      crucible_points_to hp (tm h);
+      crucible_points_to cp (tm c);
+      crucible_postcond {{ standardPolyVec z }};
+      crucible_postcond {{ standardPolyVec h }};
+      crucible_postcond {{ standardPoly c }};
+      crucible_return (tm {{ 0 : [32] }});
     };
     // Status: applies override and symbolic simulation completes successfully but then hangs on even with an overnight run
     PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_unpack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_setup  (prover "unpack_sig"); //(assume_unsat); //(prover "unpack_sig");
@@ -1058,7 +1069,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       let res = {{ verify (pkBytesToRec pk) (join m) (unpackSig sig) }};
       crucible_return (tm {{ if res then zero else ~zero : [32] }});
     };
-    // Status: fails applying override `unpack_sig`
+    // Status: simulates but generates a counterexample for a memory load
     // need override for crh
     // shake256_inc_init
     // shake256_inc_absorb
@@ -1093,7 +1104,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       let res = {{ open (pkBytesToRec pk) sm }};
       crucible_return (tm {{ if res then zero else ~zero : [32] }});
     };
-    // Status: counter example
+    // Status: simulates but takes forever checking VCs even with no return spec
     PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_setup 1) (prover "crypto_sign_open");
     
     return ();
