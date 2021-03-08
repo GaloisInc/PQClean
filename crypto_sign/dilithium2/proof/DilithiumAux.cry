@@ -191,7 +191,7 @@ standardByte a = 0 < (zext a : [23]) /\ (zext a : [23]) < `Q
 
 standardBytes a = all standardByte a
 
-standard a = 0 <=$ a /\ a <$ `Q
+standard a = 0 <= a /\ a < `Q
 standardPoly [p] = all standard p
 standardPolyVec [v] = all standardPoly v
 
