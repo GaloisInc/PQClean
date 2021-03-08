@@ -7,11 +7,16 @@ SOURCES = *.c ../../../common/*.c
   rounding.h fips202.h
 HEADERS = *.h ../../../common/*.h
 
-all: PQCgenKAT_sign
+all: bc/libdilithium2_clean.a.bc
 
 PQCgenKAT_sign: $(SOURCES) $(HEADERS)
 	$(CC) -I ../../../common $(NISTFLAGS) $(SOURCES) -o $@ -lcrypto
 
+
+bc/libdilithium2_clean.a.bc: $(SOURCES) $(HEADERS)
+	clang -c -emit-llvm -Wno-error=implicit-function-declaration -I ../../../common $(SOURCES)
+	llvm-link -o $@ *.bc
+	rm -f *.bc
 
 .PHONY: clean
 
