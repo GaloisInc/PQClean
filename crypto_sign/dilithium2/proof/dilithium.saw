@@ -229,7 +229,8 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     */
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_setup = do {
-      rp <- alloc_smt_bytes POLZ_SIZE_PACKED;
+      rp <- alloc_bytes POLZ_SIZE_PACKED;
+      //rp <- alloc_smt_bytes POLZ_SIZE_PACKED;
       (ap, a) <- fresh_poly "a";
       crucible_precond {{ polyBound (0 - (`GAMMA1 - 1)) (`GAMMA1 - 1) a }};
       crucible_execute_func [rp, ap];
@@ -241,8 +242,8 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyz_pack" [] false PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_setup (prover "Polyz_pack");
 
     let PQCLEAN_DILITHIUM2_CLEAN_pack_sig_setup = do {
-      //sigp <- alloc_bytes CRYPTO_BYTES;
-      sigp <- alloc_smt_bytes CRYPTO_BYTES;
+      sigp <- alloc_bytes CRYPTO_BYTES;
+      //sigp <- alloc_smt_bytes CRYPTO_BYTES;
       (zp, z) <- fresh_polyvec "z" L;
       (hp, h) <- fresh_polyvec "h" K;
       (cp, c) <- fresh_poly "c";
