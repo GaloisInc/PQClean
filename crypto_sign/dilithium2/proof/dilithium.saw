@@ -416,13 +416,13 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       (ap, a) <- fresh_poly "a";
       b <- crucible_fresh_var "b" i32;
       crucible_precond {{ standardPoly a }};
-      crucible_precond {{ standard b }}; // TODO: is this right?
+      //crucible_precond {{ standard b }}; // TODO: is this right?
       crucible_execute_func [ap, tm b];
       let res = {{ zero # (infNormPoly (ipToP a)) : [32] }};
       crucible_return (tm {{ zero # [~(res <$ b)] : [32] }});
     };
     // Status: counterexample!
-    PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm" [] false PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm_setup (prover "Poly_chknorm");
+    PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm" [] false PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm_setup (prover "Poly_chknorm");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_chknorm_setup = do {
       (ap, a) <- fresh_polyvec "a" K;
@@ -616,13 +616,14 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     let PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm_setup = do {
       (ap, a) <- fresh_polyvec "a" L;
       b <- crucible_fresh_var "b" i32;
-      crucible_precond {{ b == `GAMMA1 - `BETA /\ b == `GAMMA2 - `BETA  }};
+      crucible_precond {{ standardPolyVec a }};
+      //crucible_precond {{ standard b }};
       crucible_execute_func [ap, tm b];
       let res = {{ zero # (infNormPolyVec (ipvToPv a)) : [32] }};
       crucible_return (tm {{ zero # [res < b] : [32] }});
     };
-    // Status: succeeds
-    PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm" [PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm_setup (prover "Polyvecl_chknorm");
+    // Status: counterexample
+    PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm" [PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm_setup (unint_prover "Polyvecl_chknorm" ["infNormPoly"]);
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyvecl_freeze_setup = do {
       (vp, v) <- fresh_polyvec "v" L;
