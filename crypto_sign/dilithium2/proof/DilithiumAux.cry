@@ -22,6 +22,15 @@ type ByteArray = Array [64] [8]
 //BETA = 325
 //type Omega = 80
 
+// polyChkNorm
+polyChkNorm : Poly -> [32] -> Bit
+polyChkNorm a b = if ([ zero # (res i) >= b | i <- [0..255] ] != zero) then True else False
+            where t i = ((`Q - 1) >> 1) - a@i
+                  y x = x ^ (x >>$ 31)
+                  res i = ((`Q - 1) >> 1) - (y (t i))
+    
+
+
 // a1 and a0 represent low, high order bits respectively.
 decomposePc (a1 : [23]) (a0 : [23]) (a : [23]) =
   if a1 != (`Q - 1)/ALPHA
