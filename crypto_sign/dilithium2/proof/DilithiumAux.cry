@@ -10,7 +10,7 @@
 */
 module DilithiumAux where
 import Array
-import Common::mod_arith
+//import Common::mod_arith
 import Primitive::Asymmetric::Signature::Dilithium::Round2::DilithiumMedium
 
 type ByteArray = Array [64] [8]
