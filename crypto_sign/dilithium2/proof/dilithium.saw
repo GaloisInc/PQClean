@@ -24,16 +24,16 @@ import "DilithiumAux.cry";
 let tm = crucible_term;
 let toInt = eval_int;
 
-/*
+
 // To allow us to focus on a single function
 let verify m n ovs sat setup prover =
-  if eval_bool {{ ((n # zero) : [80][_]) == ("PQCLEAN_DILITHIUM2_CLEAN_polyveck_use_hint" # zero) }}
+  if eval_bool {{ ((n # zero) : [80][_]) == ("PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open" # zero) }}
   then crucible_llvm_verify m n ovs sat setup prover
   else crucible_llvm_unsafe_assume_spec m n setup;
-  */
+
 
 // For functions we're going to verify
-let verify = llvm_verify;
+//let verify = llvm_verify;
 
 
 // For functions we're not going to verify
@@ -202,13 +202,14 @@ let keccak_inc_absorb_setup mlen RATE = do {
 (stp, st) <- fresh_state "st";
 r <- crucible_fresh_var "r" i32;
 (mp, m) <- fresh_bytes "m" mlen; 
-//crucible_precond {{ st == zero /\ r == (`RATE:[32]) }};
+crucible_precond {{ st == zero /\ r == (`RATE:[32]) }};
 crucible_execute_func [stp, (tm r), mp, (tm {{ `mlen : [64] }})];
 res <- crucible_fresh_var "res" state_type;
 crucible_points_to stp (tm {{ res }});
 //crucible_postcond {{ res == join (transpose (absorb`{w=64} (pad`{r= (RATE*8)} (join [reverse x | x<-m]#0b1111)))) }};
 };
 keccak_inc_absorb_method_spec <- assume MODULE "keccak_inc_absorb" [KeccakF1600_StatePermute_method_spec] false (keccak_inc_absorb_setup CRHBYTES SHAKE256_RATE) (prover "keccak_inc_absorb");
+
 keccak_inc_absorb_1byte_method_spec <- assume MODULE "keccak_inc_absorb" [KeccakF1600_StatePermute_method_spec] false (keccak_inc_absorb_setup 1 SHAKE256_RATE) (prover "keccak_inc_absorb");
 
 // keccak_inc_squeeze_setup
@@ -217,8 +218,8 @@ let keccak_inc_squeeze_setup oplen RATE = do {
     (hp, h) <- fresh_bytes "h" n ;
     nblocks <- crucible_fresh_var "nblocks" i64;
     (stp, st) <- fresh_state "st";
-    //crucible_precond {{ h == zero /\ s == zero }};
-    crucible_execute_func [hp, (tm nblocks), stp, tm {{ `RATE : [32] }}];
+    crucible_precond {{ h == zero /\ st == zero }};
+    crucible_execute_func [hp, (tm {{ `oplen :[64] }}), stp, tm {{ `RATE : [32] }}];
     res <- crucible_fresh_var "res" state_type;
     crucible_points_to stp (tm {{ res }});
     //crucible_postcond {{ res == join (transpose(Keccak_f(transpose (split s:[5][5][64])))) }};
@@ -235,28 +236,43 @@ let keccak_inc_finalize_setup RATE = do {
 };
 keccak_inc_finalize_method_spec <- assume MODULE "keccak_inc_finalize" [] false (keccak_inc_finalize_setup SHAKE256_RATE) (prover "keccak_inc_finalize");
 
+/*void shake256_inc_init(shake256incctx *state) {
+    keccak_inc_init(state->ctx);
+}*/
 let shake256_inc_init_setup  = do {
+  //(stp, st) <- fresh_incctx "st";
   stp <- alloc_incctx;
   crucible_execute_func[stp];
 };
 shake256_inc_init_method_spec <- assume MODULE "shake256_inc_init" [keccak_inc_init_method_spec] false shake256_inc_init_setup (prover "shake256_inc_init");     
 
+/*void shake256_inc_absorb(shake256incctx *state, const uint8_t *input, size_t inlen) {
+    keccak_inc_absorb(state->ctx, SHAKE256_RATE, input, inlen);
+}*/
 let shake256_inc_absorb_setup iplen = do {
-  stp <- alloc_incctx;
-  ip <- alloc_bytes iplen;
+  stp  <- alloc_incctx;
+  (ip, i) <- fresh_bytes "i" iplen;
   //crucible_precond {{ `iplen == `CRHBYTES }};
   crucible_execute_func [ stp, ip, tm {{ `iplen : [64] }}];
 };
-shake256_inc_absorb_method_spec <- assume MODULE "shake256_inc_absorb" [keccak_inc_absorb_method_spec] false (shake256_inc_absorb_setup CRHBYTES) (prover "shake256_inc_absorb");     
+shake256_inc_absorb_method_spec <- assume MODULE "shake256_inc_absorb" [keccak_inc_absorb_method_spec] false (shake256_inc_absorb_setup CRHBYTES) (prover "shake256_inc_absorb");   
+
 shake256_inc_absorb_1byte_method_spec <- assume MODULE "shake256_inc_absorb" [keccak_inc_absorb_1byte_method_spec] false (shake256_inc_absorb_setup 1) (prover "shake256_inc_absorb");     
+
+/*void shake256_inc_finalize(shake256incctx *state) {
+    keccak_inc_finalize(state->ctx, SHAKE256_RATE, 0x1F);
+}*/
 let shake256_inc_squeeze_setup oplen = do {
   stp <- alloc_incctx;
-  op <- alloc_bytes oplen;
-  //crucible_precond {{ `oplen == `CRYPTO_BYTES }};
+  (op, o) <- fresh_bytes "o" oplen;
+  crucible_precond {{ o == zero }};
   crucible_execute_func [ op, tm {{ `oplen : [64] }}, stp ];
 };
 shake256_inc_squeeze_method_spec <- assume MODULE "shake256_inc_squeeze" [keccak_inc_squeeze_method_spec] false (shake256_inc_squeeze_setup CRHBYTES) (prover "shake256_inc_squeeze");     
 
+/*void shake256_inc_squeeze(uint8_t *output, size_t outlen, shake256incctx *state) {
+    keccak_inc_squeeze(output, outlen, state->ctx, SHAKE256_RATE);
+}*/
 let shake256_inc_finalize_setup = shake256_inc_init_setup;
 shake256_inc_finalize_method_spec <- assume MODULE "shake256_inc_finalize" [keccak_inc_finalize_method_spec] false shake256_inc_finalize_setup (prover "shake256_inc_finalize");     
   
@@ -791,6 +807,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       (skp, sk) <- fresh_bytes "sk" CRYPTO_SECRETKEYBYTES;
       //crucible_precond {{ `mlen == `CRHBYTES }};
       let Idx = toInt {{ 2 * `SEEDBYTES + ` CRHBYTES : [32] }};
+      crucible_precond {{ `mlen == 1 }};
       crucible_precond {{ and [ byteBound (-`ETA) (`ETA) x | x <- sk@@[Idx..1007] ] }};
       crucible_precond {{ and [ -2^^(`D-1) <$ c /\ c <=$ 2^^(`D-1) | c <- sk@@[1008..CRYPTO_SECRETKEYBYTES - 1] ] }};
       crucible_execute_func [sigp, siglenp, mp, tm {{ `mlen : [64] }}, skp];
@@ -804,7 +821,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_points_to skp (tm sk);
       crucible_return (tm {{ 0 : [32] }});
     };
-    // Status: hangs applying override for poly_uniform_gamma1m1 (or right after it?)
+    // Status: fails applying override shake256_inc_squeeze
     PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature" 
                                                                   [ PQCLEAN_DILITHIUM2_CLEAN_challenge_method_spec, 
                                                                     PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec, 
@@ -1123,7 +1140,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       hp <- alloc_polyvec K;
       cp <- alloc_poly;
       (sigp, sig) <- fresh_bytes "sig" CRYPTO_BYTES;
-      //crucible_precond {{ standardBytes (sig@@[0..(L - 1) * POLZ_SIZE_PACKED - 1]) }};
+      crucible_precond {{ standardBytes (sig@@[0..(L - 1) * POLZ_SIZE_PACKED - 1]) }};
       crucible_execute_func [ zp, hp, cp, sigp ];
       let res = {{ unpackSig sig }};
       let z = {{ pvToIpv res.0 }};
@@ -1138,7 +1155,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_return (tm {{ 0 : [32] }});
     };
     // Status: applies override and symbolic simulation completes successfully but then hangs on even with an overnight run
-    PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_unpack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_setup  (prover "unpack_sig"); //(assume_unsat); //(prover "unpack_sig");
+    PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_unpack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_setup (quickcheck 10);// (prover "unpack_sig"); //(assume_unsat); //(prover "unpack_sig");
                                                      //(prover_with_unints ["PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec"] "unpack_sig");
     
      let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_setup mlen = do {
@@ -1146,13 +1163,13 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       (sigp, sig) <- fresh_bytes "sig" siglen;
       (mp, m) <- fresh_bytes "m" mlen;
       (pkp, pk) <- fresh_bytes "pk" CRYPTO_PUBLICKEYBYTES;
+      crucible_precond {{ `mlen == 1 }};
       crucible_precond {{ standardBytes (drop`{SEEDBYTES} pk) /\ standardBytes (sig@@[0..(L - 1) * POLZ_SIZE_PACKED - 1]) }};
       crucible_execute_func [sigp, tm {{ `siglen : [64] }}, mp, tm {{ `mlen : [64] }}, pkp];
       let res = {{ verify (pkBytesToRec pk) (join m) (unpackSig sig) }};
       crucible_return (tm {{ if res then zero else ~zero : [32] }});
     };
-    // Status: simulates but generates a counterexample for a memory load
-    // need override for crh
+    // Status: counter example
     PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify"
       [ PQCLEAN_DILITHIUM2_CLEAN_challenge_method_spec
       , PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec
@@ -1173,6 +1190,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       , shake256_inc_init_method_spec
       , shake256_inc_squeeze_method_spec
       , shake256_inc_absorb_method_spec
+      , shake256_inc_absorb_1byte_method_spec
       , shake256_inc_finalize_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_setup 1) (prover "crypto_sign_verify");
 
     let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_setup mlen = do {
@@ -1181,13 +1199,16 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       mlenp <- crucible_alloc i64;
       (smp, sm) <- fresh_bytes "sm" smlen;
       (pkp, pk) <- fresh_bytes "pk" CRYPTO_PUBLICKEYBYTES;
+      crucible_precond {{ `mlen == 1 }};
       crucible_precond {{ standardBytes (drop`{SEEDBYTES} pk) /\ standardBytes (sm@@[0..(L - 1) * POLZ_SIZE_PACKED - 1]) }};
       crucible_execute_func [mp, mlenp, smp, (tm {{ `smlen : [64] }}), pkp];
       let res = {{ open (pkBytesToRec pk) sm }};
       crucible_return (tm {{ if res then zero else ~zero : [32] }});
     };
     // Status: simulates but takes forever checking VCs even with no return spec
-    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_setup 1) (prover "crypto_sign_open");
+    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_setup 1) 
+    (quickcheck 10);
+    //(prover "crypto_sign_open");
     
     return ();
 };
