@@ -143,7 +143,6 @@ void PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery(poly *c, const poly *
 
     for (i = 0; i < N; ++i) {
         c->coeffs[i] = PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce((uint64_t)a->coeffs[i] * b->coeffs[i]);
-        printf("(uint64_t)a->coeffs[%u] * b->coeffs[%u]=%u, a->coeffs[%u]=%u, b->coeffs[%u]=%u\n", i, i,(uint64_t)a->coeffs[i] * b->coeffs[i], i, a->coeffs[i], i, b->coeffs[i] );
     }
 
 }

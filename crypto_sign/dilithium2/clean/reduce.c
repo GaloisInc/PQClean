@@ -14,14 +14,11 @@
 **************************************************/
 uint32_t PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce(uint64_t a) {
     uint64_t t;
-    printf("QINV=%lu\n\n", QINV);
-    a= 18014398509481984;
     t = a * QINV;
     t &= (1ULL << 32) - 1;
     t *= Q;
     t = a + t;
     t >>= 32;
-    printf("montgomery_reduce r:= %lu", (uint32_t)t);
     return (uint32_t) t;
 }
 
