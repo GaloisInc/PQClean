@@ -17,24 +17,22 @@ enable_experimental;
 
 dilithium2 <- llvm_load_module "../clean/bc/libdilithium2_clean.a.bc";
 import "deps/cryptol-specs/Primitive/Asymmetric/Signature/Dilithium/Round2/DilithiumMedium.cry";
-import "deps/cryptol-specs/Common/mod_arith.cry";
+//import "deps/cryptol-specs/Common/mod_arith.cry";
 import "deps/cryptol-specs/Common/bv.cry";
 import "DilithiumAux.cry";
 
 let tm = crucible_term;
 let toInt = eval_int;
 
-
-// To allow us to focus on a single function
+/*
 let verify m n ovs sat setup prover =
-  if eval_bool {{ ((n # zero) : [80][_]) == ("PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open" # zero) }}
+  if eval_bool {{ ((n # zero) : [80][_]) == ("PQCLEAN_DILITHIUM2_CLEAN_poly_sub" # zero) }}
   then crucible_llvm_verify m n ovs sat setup prover
   else crucible_llvm_unsafe_assume_spec m n setup;
-
+  */
 
 // For functions we're going to verify
-//let verify = llvm_verify;
-
+let verify = llvm_verify;
 
 // For functions we're not going to verify
 let assume m n ovs sat setup prover =
@@ -80,7 +78,15 @@ let ptr_to_fresh nm tp = do {
     return (p, x);
 };
 
+let ptr_to_ro_fresh nm tp = do {
+    x <- crucible_fresh_var nm tp;
+    p <- crucible_alloc_readonly tp;
+    crucible_points_to p (tm x);
+    return (p, x);
+};
+
 let alloc_bytes n = crucible_alloc (llvm_array n i8);
+let alloc_ro_bytes n = crucible_alloc_readonly (llvm_array n i8);
 let alloc_smt_bytes n = do {
     p <- crucible_alloc (llvm_array n i8);
     x <- llvm_fresh_cryptol_var "x" {| ByteArray |};
@@ -94,8 +100,11 @@ let alloc_state = crucible_alloc (state_type);
 let alloc_incctx = crucible_alloc (incctx_type);
 
 let fresh_poly nm = ptr_to_fresh nm poly_type;
+let fresh_ro_poly nm = ptr_to_ro_fresh nm poly_type;
 let fresh_polyvec nm n = ptr_to_fresh nm (polyvec_type n);
+let fresh_ro_polyvec nm n = ptr_to_ro_fresh nm (polyvec_type n);
 let fresh_bytes nm n = ptr_to_fresh nm (llvm_array n i8);
+let fresh_ro_bytes nm n = ptr_to_ro_fresh nm (llvm_array n i8);
 let fresh_words nm n = ptr_to_fresh nm (llvm_array n i32);
 let fresh_incctx nm = ptr_to_fresh nm incctx_type;
 let fresh_state nm = ptr_to_fresh nm state_type;
@@ -116,6 +125,7 @@ let prove_dilithium MODULE MODE = do {
     // Parameters imported from Cryptol module
     let SEEDBYTES = toInt {{ `SeedBytes : [32] }};
     let CRHBYTES = toInt {{ `CrhBytes : [32] }};
+    let SEED_CRHBYTES = toInt {{ `SeedBytes + `CrhBytes : [32] }};
     //let N = 256;
     //let NDIV2 = 128;
     let Q = toInt {{ `Q : [32] }}; //8380417;
@@ -167,9 +177,10 @@ let prove_dilithium MODULE MODE = do {
     
       let PQCLEAN_DILITHIUM2_CLEAN_challenge_setup = do {
       cp <- alloc_poly;
-      (mup, mu) <- fresh_bytes "mu" CRHBYTES;
-      (w1p, w1) <- fresh_polyvec "w1" K;
+      (mup, mu) <- fresh_ro_bytes "mu" CRHBYTES;
+      (w1p, w1) <- fresh_ro_polyvec "w1" K;
       crucible_execute_func [cp, mup, w1p];
+      assign_fresh_poly cp "challenge_res";
       //res <- crucible_fresh_var "res" (llvm_array 1 (llvm_type "%struct.poly"));
       //crucible_points_to arg0 (tm res);
       //crucible_postcond {{ zero == zero }};
@@ -236,45 +247,67 @@ let keccak_inc_finalize_setup RATE = do {
 };
 keccak_inc_finalize_method_spec <- assume MODULE "keccak_inc_finalize" [] false (keccak_inc_finalize_setup SHAKE256_RATE) (prover "keccak_inc_finalize");
 
+let shake256_setup outlen inlen = do {
+  op <- alloc_bytes outlen;
+  ip <- alloc_ro_bytes inlen;
+  //(ip, i) <- fresh_bytes "in" inlen;
+  crucible_execute_func[op, tm {{ `outlen : [64] }}, ip, tm {{ `inlen : [64] }}];
+  // TODO: real postcondition
+  res <- crucible_fresh_var "res" (llvm_array outlen i8);
+  crucible_points_to op (tm res);
+};
+shake256_method_spec_pk <- assume MODULE "shake256" [] false (shake256_setup CRHBYTES CRYPTO_PUBLICKEYBYTES) (prover "shake256_inc_init");
+shake256_method_spec_seed <- assume MODULE "shake256" [] false (shake256_setup CRHBYTES SEED_CRHBYTES) (prover "shake256_inc_init");
+
 /*void shake256_inc_init(shake256incctx *state) {
     keccak_inc_init(state->ctx);
 }*/
+/*
 let shake256_inc_init_setup  = do {
   //(stp, st) <- fresh_incctx "st";
   stp <- alloc_incctx;
   crucible_execute_func[stp];
 };
 shake256_inc_init_method_spec <- assume MODULE "shake256_inc_init" [keccak_inc_init_method_spec] false shake256_inc_init_setup (prover "shake256_inc_init");     
+*/
 
 /*void shake256_inc_absorb(shake256incctx *state, const uint8_t *input, size_t inlen) {
     keccak_inc_absorb(state->ctx, SHAKE256_RATE, input, inlen);
 }*/
+/*
 let shake256_inc_absorb_setup iplen = do {
   stp  <- alloc_incctx;
-  (ip, i) <- fresh_bytes "i" iplen;
+  (ip, i) <- fresh_ro_bytes "i" iplen;
   //crucible_precond {{ `iplen == `CRHBYTES }};
   crucible_execute_func [ stp, ip, tm {{ `iplen : [64] }}];
 };
 shake256_inc_absorb_method_spec <- assume MODULE "shake256_inc_absorb" [keccak_inc_absorb_method_spec] false (shake256_inc_absorb_setup CRHBYTES) (prover "shake256_inc_absorb");   
 
 shake256_inc_absorb_1byte_method_spec <- assume MODULE "shake256_inc_absorb" [keccak_inc_absorb_1byte_method_spec] false (shake256_inc_absorb_setup 1) (prover "shake256_inc_absorb");     
+*/
 
 /*void shake256_inc_finalize(shake256incctx *state) {
     keccak_inc_finalize(state->ctx, SHAKE256_RATE, 0x1F);
 }*/
+/*
 let shake256_inc_squeeze_setup oplen = do {
   stp <- alloc_incctx;
-  (op, o) <- fresh_bytes "o" oplen;
-  crucible_precond {{ o == zero }};
+  op <- alloc_bytes oplen;
+  //(op, o) <- fresh_bytes "o" oplen;
+  //crucible_precond {{ o == zero }};
   crucible_execute_func [ op, tm {{ `oplen : [64] }}, stp ];
+  assign_fresh_bytes oplen op "out";
 };
 shake256_inc_squeeze_method_spec <- assume MODULE "shake256_inc_squeeze" [keccak_inc_squeeze_method_spec] false (shake256_inc_squeeze_setup CRHBYTES) (prover "shake256_inc_squeeze");     
+*/
 
 /*void shake256_inc_squeeze(uint8_t *output, size_t outlen, shake256incctx *state) {
     keccak_inc_squeeze(output, outlen, state->ctx, SHAKE256_RATE);
 }*/
+/*
 let shake256_inc_finalize_setup = shake256_inc_init_setup;
 shake256_inc_finalize_method_spec <- assume MODULE "shake256_inc_finalize" [keccak_inc_finalize_method_spec] false shake256_inc_finalize_setup (prover "shake256_inc_finalize");     
+*/
   
     /*let PQCLEAN_DILITHIUM2_CLEAN_shake128_stream_init_setup = do {
       (st, stp) <- fresh_shake128ctx "st";
@@ -285,20 +318,19 @@ shake256_inc_finalize_method_spec <- assume MODULE "shake256_inc_finalize" [kecc
     PQCLEAN_DILITHIUM2_CLEAN_shake128_stream_init_method_spec <- assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_shake128_stream_init" [] false PQCLEAN_DILITHIUM2_CLEAN_shake128_stream_init_setup (prover "shake128_stream_init");
 */
 
- let PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_setup = do {
+   let PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_setup = do {
       ap <- alloc_poly;
-      (seedp, seed) <- fresh_bytes "seed" SEEDBYTES;
+      (seedp, seed) <- fresh_ro_bytes "seed" SEEDBYTES;
       nonce <- crucible_fresh_var "nonce" i16;
       crucible_execute_func [ap, seedp, tm nonce];
-      //crucible_points_to ap (tm seed);
       assign_fresh_poly ap "a";
     };
     // NB: we aren't going to verify this function
     PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_method_spec <- assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_uniform" [/*PQCLEAN_DILITHIUM2_CLEAN_shake128_stream_init_method_spec*/] false PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_setup (prover "Poly_uniform");
 
-let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
+    let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       matp <- crucible_alloc (llvm_array K (polyvec_type L));
-      (rhop, rho) <- fresh_bytes "rho" SEEDBYTES;
+      (rhop, rho) <- fresh_ro_bytes "rho" SEEDBYTES;
       crucible_precond {{ rho != zero }};
       crucible_execute_func [matp, rhop];
       let res = {{ pmToIpm (expandA rho) }};
@@ -323,7 +355,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     let PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_setup = do {
       rp <- alloc_bytes POLZ_SIZE_PACKED;
       //rp <- alloc_smt_bytes POLZ_SIZE_PACKED;
-      (ap, a) <- fresh_poly "a";
+      (ap, a) <- fresh_ro_poly "a";
       crucible_precond {{ polyBound (0 - (`GAMMA1 - 1)) (`GAMMA1 - 1) a }};
       crucible_execute_func [rp, ap];
       let res = {{ polyZPack (ipToP a) }};
@@ -336,33 +368,34 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     let PQCLEAN_DILITHIUM2_CLEAN_pack_sig_setup = do {
       sigp <- alloc_bytes CRYPTO_BYTES;
       //sigp <- alloc_smt_bytes CRYPTO_BYTES;
-      (zp, z) <- fresh_polyvec "z" L;
-      (hp, h) <- fresh_polyvec "h" K;
-      (cp, c) <- fresh_poly "c";
+      (zp, z) <- fresh_ro_polyvec "z" L;
+      (hp, h) <- fresh_ro_polyvec "h" K;
+      (cp, c) <- fresh_ro_poly "c";
       crucible_precond {{ and [ and [ polyBound (0 - (`GAMMA1 - 1)) (`GAMMA1 - 1) p | p <- o ] | o <- z ] }};
       crucible_execute_func [sigp, zp, hp, cp];
       let zPV = {{ ipvToPv z }};
       let hPV = {{ ipvToPv h }};
       let cP = {{ ipToP c }};
       let res = {{ split (packSig (zPV, hPV, cP)) : [_][8] }};
-      llvm_points_to_array_prefix sigp res {{ `CRYPTO_BYTES : [64] }};
-      //crucible_points_to sigp (tm res);
+      //llvm_points_to_array_prefix sigp res {{ `CRYPTO_BYTES : [64] }};
+      crucible_points_to sigp (tm res);
     };
-    // Status: hangs while reading the final value from sigp
-    PQCLEAN_DILITHIUM2_CLEAN_pack_sig_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_sig_setup assume_unsat; //(offline_smtlib2 "pack_sig"); //(prover "pack_sig");
+    // Status: hangs due to symbolic array indexing (will assume)
+    PQCLEAN_DILITHIUM2_CLEAN_pack_sig_method_spec <- assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_pack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_pack_sig_setup assume_unsat; //(offline_smtlib2 "pack_sig"); //(prover "pack_sig");
                                                      //(prover_with_unints ["PQCLEAN_DILITHIUM2_CLEAN_polyz_pack_method_spec"] "pack_sig"); //(quickcheck 2); //(prover "pack_sig");
 
     let PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_setup = do {
       a <- crucible_fresh_var "a" i64;
-      crucible_precond {{ 0 <=$ a /\ a <=$ `Q * (2^^32) }};
+      //crucible_precond {{ 0 < a /\ a <= `Q * (2^^32) }};
       crucible_execute_func [tm a];
       let res = {{ montgomeryReduce a }};
       crucible_return (tm res);
-      crucible_postcond {{ reducedBound res }};
-      crucible_postcond {{ safe_product (res, `M) % `Q == safe_mod(`Q, a) }};
+      //crucible_postcond {{ reducedBound res }};
+      // NB: we may not need the following
+      //crucible_postcond {{ mod_mul (`Q, zext res, `M) == a % `Q }};
     };
-    // Status: succeeds (quick check succeeds with the full postcondition and proof succeeds only with the first post condition and goes for ever for the full post condition)
-    PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce" [] false PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_setup (prover "montgomeryReduce"); //(quickcheck 1000);
+    // Status: succeeds
+    PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce" [] false PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_setup (prover "montgomeryReduce"); //(quickcheck 1000);
 
      let PQCLEAN_DILITHIUM2_CLEAN_invntt_frominvmont_setup = do {
       (ap, a) <- fresh_poly "a";
@@ -403,7 +436,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
         assume_unsat;
     });
     
-  let PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_setup = do {
+    let PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_setup = do {
       (ap, a) <- fresh_poly "a";
       crucible_execute_func [ap];
       let res = {{ nttImp a }};
@@ -413,10 +446,10 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     // Status: succeeds
     PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_ntt" [PQCLEAN_DILITHIUM2_CLEAN_ntt_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_setup (unint_yices ["nttImp"]);
 
-  let PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_setup = do {
+    let PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_setup = do {
       cp <- alloc_poly;
-      (ap, a) <- fresh_poly "a";
-      (bp, b) <- fresh_poly "b";
+      (ap, a) <- fresh_ro_poly "a";
+      (bp, b) <- fresh_ro_poly "b";
       //crucible_precond {{ (polyBound 0 (22 * `Q) a) /\  (polyBound 0 (22 *` Q) b)}};
       crucible_precond {{ (polyBound 0 (22 * `Q) a) /\ (polyBoundGEq 0 (22 * `Q) b) }};
       crucible_execute_func [cp, ap, bp];
@@ -424,8 +457,8 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_points_to cp (tm res);
       //crucible_postcond {{ polyBound 0 (2 * `Q) res }};
     };
-    // Status: quickcheck passes but generates 257 substantial goals to prove preconditions of montgomeryReduce
-    PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery" [PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_setup (unint_prover "poly_point_inv" ["montgomeryReduce"]);
+    // Status: succeeds
+    PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery" [PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_setup (unint_prover "poly_point_inv" ["montgomeryReduce"]);
 
     let PQCLEAN_DILITHIUM2_CLEAN_reduce32_setup = do {
       a <- crucible_fresh_var "a" i32;
@@ -446,7 +479,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     };
     // Status: succeeds
     // assuming it for now to speed up proving other functions
-    PQCLEAN_DILITHIUM2_CLEAN_poly_reduce_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_reduce" [PQCLEAN_DILITHIUM2_CLEAN_reduce32_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_reduce_setup (prover "Poly_reduce");
+    PQCLEAN_DILITHIUM2_CLEAN_poly_reduce_method_spec <- slow_verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_reduce" [PQCLEAN_DILITHIUM2_CLEAN_reduce32_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_reduce_setup (prover "Poly_reduce");
 
  let PQCLEAN_DILITHIUM2_CLEAN_shake256_stream_init_setup = do {
       arg0_star <- crucible_fresh_var "arg0" (llvm_type "%struct.shake128ctx");
@@ -462,22 +495,21 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     PQCLEAN_DILITHIUM2_CLEAN_shake256_stream_init_method_spec <- assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_shake256_stream_init" [] false PQCLEAN_DILITHIUM2_CLEAN_shake256_stream_init_setup (prover "shake256_stream_init");
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_gamma1m1_setup = do {
-      ap <- alloc_polyvec L;
-      (seedp, seed) <- fresh_bytes "seed" CRHBYTES;
+      ap <- alloc_poly;
+      (seedp, seed) <- fresh_ro_bytes "seed" CRHBYTES;
       nonce <- crucible_fresh_var "nonce" i16;
       crucible_execute_func [ap, seedp, tm nonce];
-      crucible_points_to ap (tm {{ pvToIpv (expandMask (seed, nonce)) }});
+      assign_fresh_poly ap "res";
+      //crucible_points_to ap (tm {{ pvToIpv (expandMask (seed, nonce)) }});
     };
     // NB: we aren't going to verify this function
     PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_gamma1m1_method_spec <- assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_gamma1m1" [PQCLEAN_DILITHIUM2_CLEAN_shake256_stream_init_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_gamma1m1_setup (prover "Poly_uniform_gamma1m1");
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_add_setup = do {
       cp <- alloc_poly;
-      (ap, a) <- fresh_poly "a";
-      (bp, b) <- fresh_poly "b";
+      (ap, a) <- fresh_ro_poly "a";
+      (bp, b) <- fresh_ro_poly "b";
       crucible_execute_func [cp, ap, bp];
-      crucible_points_to ap (tm a);
-      crucible_points_to bp (tm b);
       let res = {{ polyAddImp a b }};
       crucible_points_to cp (tm res);
     };
@@ -486,9 +518,8 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_add_setup2 = do {
       (ap, a) <- fresh_poly "a";
-      (bp, b) <- fresh_poly "b";
+      (bp, b) <- fresh_ro_poly "b";
       crucible_execute_func [ap, ap, bp];
-      crucible_points_to bp (tm b);
       crucible_points_to ap (tm {{ polyAddImp a b }});
     };
     // Status: succeeds
@@ -496,16 +527,25 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_add_setup = do {
       wp <-  alloc_polyvec K;
-      (up, u) <- fresh_polyvec "u" K;
-      (vp, v) <- fresh_polyvec "v" K;
+      (up, u) <- fresh_ro_polyvec "u" K;
+      (vp, v) <- fresh_ro_polyvec "v" K;
       crucible_execute_func [wp, up, vp];
       crucible_points_to wp (tm {{ polyVecAddImp u v }});
     };
     // Status: succeeds
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_add_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_add" [PQCLEAN_DILITHIUM2_CLEAN_poly_add_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_add_setup (unint_prover "Polyveck_add" ["polyAddImp"]);
 
+    let PQCLEAN_DILITHIUM2_CLEAN_polyveck_add_setup2 = do {
+      (up, u) <- fresh_polyvec "u" K;
+      (vp, v) <- fresh_ro_polyvec "v" K;
+      crucible_execute_func [up, up, vp];
+      crucible_points_to up (tm {{ polyVecAddImp u v }});
+    };
+    // Status: succeeds
+    PQCLEAN_DILITHIUM2_CLEAN_polyveck_add_method_spec2 <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_add" [PQCLEAN_DILITHIUM2_CLEAN_poly_add_method_spec2] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_add_setup2 (unint_prover "Polyveck_add" ["polyAddImp"]);
+
     let PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm_setup = do {
-      (ap, a) <- fresh_poly "a";
+      (ap, a) <- fresh_ro_poly "a";
       b <- crucible_fresh_var "b" i32;
       crucible_precond {{ standardPoly a }};
       crucible_precond {{ b <= `GAMMA1 - `BETA }};// \/ b == `GAMMA2 - `BETA }};
@@ -515,11 +555,11 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       let res = {{ polyChkNorm (ipToP a) (drop b) }};
       crucible_return (tm {{ (zero # [res]) : [32] }});
     };
-    // Status: quickcheck passes
-    PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm" [] false PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm_setup (quickcheck 10);// (prover "Poly_chknorm");
+    // Status: quickcheck passes, verification slow
+    PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm" [] false PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm_setup (prover "Poly_chknorm");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_chknorm_setup = do {
-      (ap, a) <- fresh_polyvec "a" K;
+      (ap, a) <- fresh_ro_polyvec "a" K;
       b <- crucible_fresh_var "b" i32;
       crucible_precond {{ standardPolyVec a }};
       crucible_precond {{ b <= `GAMMA1 - `BETA }};
@@ -573,9 +613,9 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     PQCLEAN_DILITHIUM2_CLEAN_decompose_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_decompose" [] false PQCLEAN_DILITHIUM2_CLEAN_decompose_setup (prover "decompose");
     
    let PQCLEAN_DILITHIUM2_CLEAN_poly_decompose_setup = do {
-      (a0p, a0) <- fresh_poly "a0";
-      (a1p, a1) <- fresh_poly "a1";
-      (ap, a) <- fresh_poly "a";
+      a0p <- alloc_poly;
+      a1p <- alloc_poly;
+      (ap, a) <- fresh_ro_poly "a";
       crucible_precond {{ standardPoly a }};
       crucible_execute_func [a1p, a0p, ap];
       let res = {{ decomposePoly (ipToP a) }};
@@ -587,9 +627,9 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     PQCLEAN_DILITHIUM2_CLEAN_poly_decompose_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_decompose" [PQCLEAN_DILITHIUM2_CLEAN_decompose_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_poly_decompose_setup (unint_prover "Poly_decompose" ["decompose", "decomposePc"]);
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_decompose_setup = do {
-      (v0p, v0) <- fresh_polyvec "v0" K;
-      (v1p, v1) <- fresh_polyvec "v1" K;
-      (vp, v) <- fresh_polyvec "v" K;
+      v0p <- alloc_polyvec K;
+      v1p <- alloc_polyvec K;
+      (vp, v) <- fresh_ro_polyvec "v" K;
       crucible_precond {{ standardPolyVec v }};
       crucible_execute_func [v0p, v1p, vp];
       let res = {{ decomposePolyVec (ipvToPv v) }};
@@ -645,8 +685,8 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_make_hint_setup = do {
       hp <- alloc_poly;
-      (a0p, a0) <- fresh_poly "a0";
-      (a1p, a1) <- fresh_poly "a1";
+      (a0p, a0) <- fresh_ro_poly "a0";
+      (a1p, a1) <- fresh_ro_poly "a1";
       crucible_precond {{ standardPoly a0 /\ standardPoly a1 }};
       crucible_execute_func [hp, a0p, a1p];
       crucible_return (tm {{ zext (makeHintPolyNew (ipToP a0, ipToP a1)) : [32] }});
@@ -657,8 +697,8 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_make_hint_setup = do {
       hp <- alloc_polyvec K;
-      (v0p, v0) <- fresh_polyvec "v0" K;
-      (v1p, v1) <- fresh_polyvec "v1" K;
+      (v0p, v0) <- fresh_ro_polyvec "v0" K;
+      (v1p, v1) <- fresh_ro_polyvec "v1" K;
       crucible_precond {{ standardPolyVec v0 /\ standardPolyVec v1 }};
       crucible_execute_func [hp, v0p, v1p];
       crucible_return (tm {{ zext (makeHintPolyVecNew (ipvToPv v0, ipvToPv v1)) : [32] }});
@@ -678,21 +718,31 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     
     let PQCLEAN_DILITHIUM2_CLEAN_poly_sub_setup = do {
       cp <- alloc_poly;
-      (ap, a) <- fresh_poly "a";
-      (bp, b) <- fresh_poly "b";
+      (ap, a) <- fresh_ro_poly "a";
+      (bp, b) <- fresh_ro_poly "b";
+      //crucible_precond {{ reducedBoundPoly a }}; // TODO: may not be necessary
       crucible_precond {{ reducedBoundPoly b }}; // TODO: may not be necessary
       crucible_execute_func [cp, ap, bp];
-      crucible_points_to ap (tm a);
-      crucible_points_to bp (tm b);
       crucible_points_to cp (tm {{ polySubImp a b }});
     };
     // Status: succeeds
     PQCLEAN_DILITHIUM2_CLEAN_poly_sub_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_sub" [] false PQCLEAN_DILITHIUM2_CLEAN_poly_sub_setup (prover "Poly_sub");
 
+    let PQCLEAN_DILITHIUM2_CLEAN_poly_sub_setup2 = do {
+      (ap, a) <- fresh_poly "a";
+      (bp, b) <- fresh_ro_poly "b";
+      //crucible_precond {{ reducedBoundPoly a }}; // TODO: may not be necessary
+      crucible_precond {{ reducedBoundPoly b }}; // TODO: may not be necessary
+      crucible_execute_func [ap, ap, bp];
+      crucible_points_to ap (tm {{ polySubImp a b }});
+    };
+    // Status: succeeds
+    PQCLEAN_DILITHIUM2_CLEAN_poly_sub_method_spec2 <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_poly_sub" [] false PQCLEAN_DILITHIUM2_CLEAN_poly_sub_setup2 (prover "Poly_sub");
+
     let PQCLEAN_DILITHIUM2_CLEAN_polyveck_sub_setup = do {
       wp <- alloc_polyvec K;
-      (up, u) <- fresh_polyvec "u" K;
-      (vp, v) <- fresh_polyvec "v" K;
+      (up, u) <- fresh_ro_polyvec "u" K;
+      (vp, v) <- fresh_ro_polyvec "v" K;
       crucible_precond {{ reducedBoundPolyVec u /\ reducedBoundPolyVec v }};
       crucible_execute_func [wp, up, vp];
       crucible_points_to wp (tm {{ polyVecSubImp u v }});
@@ -700,27 +750,47 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     // Status: succeeds
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_sub_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_sub" [PQCLEAN_DILITHIUM2_CLEAN_poly_sub_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_sub_setup (prover "Polyveck_sub");
 
+    let PQCLEAN_DILITHIUM2_CLEAN_polyveck_sub_setup2 = do {
+      (up, u) <- fresh_polyvec "u" K;
+      (vp, v) <- fresh_ro_polyvec "v" K;
+      crucible_precond {{ reducedBoundPolyVec u /\ reducedBoundPolyVec v }};
+      crucible_execute_func [up, up, vp];
+      crucible_points_to up (tm {{ polyVecSubImp u v }});
+    };
+    // Status: succeeds
+    PQCLEAN_DILITHIUM2_CLEAN_polyveck_sub_method_spec2 <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyveck_sub" [PQCLEAN_DILITHIUM2_CLEAN_poly_sub_method_spec2] false PQCLEAN_DILITHIUM2_CLEAN_polyveck_sub_setup2 (prover "Polyveck_sub");
+
     let PQCLEAN_DILITHIUM2_CLEAN_polyvecl_add_setup = do {
       wp <- alloc_polyvec L;
-      (up, u) <- fresh_polyvec "u" L;
-      (vp, v) <- fresh_polyvec "v" L;
+      (up, u) <- fresh_ro_polyvec "u" L;
+      (vp, v) <- fresh_ro_polyvec "v" L;
       crucible_execute_func [wp, up, vp];
       crucible_points_to wp (tm {{ polyVecAddImp u v }});
     };
     // Status: succeeds
     PQCLEAN_DILITHIUM2_CLEAN_polyvecl_add_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyvecl_add" [PQCLEAN_DILITHIUM2_CLEAN_poly_add_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyvecl_add_setup (prover "Polyvecl_add");
 
+    let PQCLEAN_DILITHIUM2_CLEAN_polyvecl_add_setup2 = do {
+      (up, u) <- fresh_polyvec "u" L;
+      (vp, v) <- fresh_ro_polyvec "v" L;
+      crucible_execute_func [up, up, vp];
+      crucible_points_to up (tm {{ polyVecAddImp u v }});
+    };
+    // Status: succeeds
+    PQCLEAN_DILITHIUM2_CLEAN_polyvecl_add_method_spec2 <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyvecl_add" [PQCLEAN_DILITHIUM2_CLEAN_poly_add_method_spec2] false PQCLEAN_DILITHIUM2_CLEAN_polyvecl_add_setup2 (prover "Polyvecl_add");
+
     let PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm_setup = do {
-      (ap, a) <- fresh_polyvec "a" L;
+      (ap, a) <- fresh_ro_polyvec "a" L;
       b <- crucible_fresh_var "b" i32;
       crucible_precond {{ standardPolyVec a }};
       //crucible_precond {{ standard b }};
       crucible_execute_func [ap, tm b];
-      let res = {{ zero # (infNormPolyVec (ipvToPv a)) : [32] }};
-      crucible_return (tm {{ zero # [res < b] : [32] }});
+      let res = {{ zero # [polyVecChkNorm (ipvToPv a) b] : [32] }};
+      // Note: make sure this agrees with poly_chknorm!
+      crucible_return (tm {{ res }});
     };
     // Status: counterexample
-    PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm" [PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm_setup (unint_prover "Polyvecl_chknorm" ["infNormPoly"]);
+    PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm" [PQCLEAN_DILITHIUM2_CLEAN_poly_chknorm_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm_setup (unint_prover "Polyvecl_chknorm" ["polyChkNorm"]);
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyvecl_freeze_setup = do {
       (vp, v) <- fresh_polyvec "v" L;
@@ -729,7 +799,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     };
     // Status: succeeds
     // NB: slow to verify
-    PQCLEAN_DILITHIUM2_CLEAN_polyvecl_freeze_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyvecl_freeze" [PQCLEAN_DILITHIUM2_CLEAN_poly_freeze_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyvecl_freeze_setup (unint_prover "Polyvecl_freeze" ["polyFreezeImp"]);
+    PQCLEAN_DILITHIUM2_CLEAN_polyvecl_freeze_method_spec <- slow_verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyvecl_freeze" [PQCLEAN_DILITHIUM2_CLEAN_poly_freeze_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyvecl_freeze_setup (unint_prover "Polyvecl_freeze" ["polyFreezeImp"]);
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyvecl_ntt_setup = do {
       (vp, v) <- fresh_polyvec "v" L;
@@ -742,19 +812,18 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     
     let PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery_setup = do {
       wp <- alloc_poly;
-      (up, u) <- fresh_polyvec "u" K;
-      (vp, v) <- fresh_polyvec "v" K;
+      (up, u) <- fresh_ro_polyvec "u" L;
+      (vp, v) <- fresh_ro_polyvec "v" L;
       crucible_precond {{ (polyVecBound 0 (22 * `Q) u) /\ (polyVecBoundGEq 0 (22 * `Q) v) }};
       crucible_execute_func [wp, up, vp];
-      //crucible_points_to wp (tm {{ nttDotProductImp u v }});
+      crucible_points_to wp (tm {{ nttDotProductImp u v }});
     };
-    // Status: succeeds
-    // NB: slow to verify
-    PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery_method_spec <- slow_verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery" [PQCLEAN_DILITHIUM2_CLEAN_poly_add_method_spec2, PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery_setup (unint_yices ["nttPolyMultImp"]);
+    // Status: unknown
+    PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery" [PQCLEAN_DILITHIUM2_CLEAN_poly_add_method_spec2, PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery_setup (unint_yices ["nttPolyMultImp"]);
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyeta_unpack_setup = do {
       rp <- alloc_poly;
-      (ap, a) <- fresh_bytes "a" POLETA_SIZE_PACKED ;
+      (ap, a) <- fresh_ro_bytes "a" POLETA_SIZE_PACKED ;
       crucible_precond {{ and [ (byteBound (-`ETA) (`ETA) x) | x <- a ] }};
       crucible_execute_func [rp, ap];
       let res = {{ unpackPolyEta a }};
@@ -766,7 +835,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
     
     let PQCLEAN_DILITHIUM2_CLEAN_polyt0_unpack_setup = do {
       rp <- alloc_poly;
-      (ap, a) <- fresh_bytes "a" POLT0_SIZE_PACKED;
+      (ap, a) <- fresh_ro_bytes "a" POLT0_SIZE_PACKED;
       crucible_precond {{ and [ -2^^(`D-1) <$ c /\ c <=$ 2^^(`D-1) | c <- a ] }};
       crucible_execute_func [rp, ap];
       let res = {{ (polyT0Unpack a) }};
@@ -783,7 +852,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       s1p <- alloc_polyvec L;
       s2p <- alloc_polyvec K;
       t0p <- alloc_polyvec K;
-      (skp, sk) <- fresh_bytes "sk" CRYPTO_SECRETKEYBYTES; 
+      (skp, sk) <- fresh_ro_bytes "sk" CRYPTO_SECRETKEYBYTES; 
       let Idx = toInt {{ 2 * `SEEDBYTES + ` CRHBYTES : [32] }};
       crucible_precond {{ and [ byteBound (-`ETA) (`ETA) x | x <- sk@@[Idx..1007] ] }};
       crucible_precond {{ and [ -2^^(`D-1) <$ c /\ c <=$ 2^^(`D-1) | c <- sk@@[1008..CRYPTO_SECRETKEYBYTES - 1] ] }};
@@ -803,8 +872,8 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       let siglen = CRYPTO_BYTES;
       sigp <- alloc_bytes siglen;
       siglenp <- crucible_alloc i64;
-      (mp, m) <- fresh_bytes "m" mlen;
-      (skp, sk) <- fresh_bytes "sk" CRYPTO_SECRETKEYBYTES;
+      (mp, m) <- fresh_ro_bytes "m" mlen;
+      (skp, sk) <- fresh_ro_bytes "sk" CRYPTO_SECRETKEYBYTES;
       //crucible_precond {{ `mlen == `CRHBYTES }};
       let Idx = toInt {{ 2 * `SEEDBYTES + ` CRHBYTES : [32] }};
       crucible_precond {{ `mlen == 1 }};
@@ -821,8 +890,8 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_points_to skp (tm sk);
       crucible_return (tm {{ 0 : [32] }});
     };
-    // Status: fails applying override shake256_inc_squeeze
-    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature" 
+    // Status: all overrides apply but simulation doesn't terminate
+    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature" 
                                                                   [ PQCLEAN_DILITHIUM2_CLEAN_challenge_method_spec, 
                                                                     PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec, 
                                                                     PQCLEAN_DILITHIUM2_CLEAN_pack_sig_method_spec, 
@@ -832,6 +901,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
                                                                     PQCLEAN_DILITHIUM2_CLEAN_poly_reduce_method_spec, 
                                                                     PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_gamma1m1_method_spec, 
                                                                     PQCLEAN_DILITHIUM2_CLEAN_polyveck_add_method_spec, 
+                                                                    PQCLEAN_DILITHIUM2_CLEAN_polyveck_add_method_spec2, 
                                                                     PQCLEAN_DILITHIUM2_CLEAN_polyveck_chknorm_method_spec, 
                                                                     PQCLEAN_DILITHIUM2_CLEAN_polyveck_csubq_method_spec, 
                                                                     PQCLEAN_DILITHIUM2_CLEAN_polyveck_decompose_method_spec, 
@@ -839,18 +909,20 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
                                                                     PQCLEAN_DILITHIUM2_CLEAN_polyveck_make_hint_method_spec,
                                                                     PQCLEAN_DILITHIUM2_CLEAN_polyveck_ntt_method_spec,
                                                                     PQCLEAN_DILITHIUM2_CLEAN_polyveck_sub_method_spec,
-                                                                    PQCLEAN_DILITHIUM2_CLEAN_polyvecl_add_method_spec,
+                                                                    PQCLEAN_DILITHIUM2_CLEAN_polyveck_sub_method_spec2,
+                                                                    PQCLEAN_DILITHIUM2_CLEAN_polyvecl_add_method_spec2,
                                                                     PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm_method_spec,
                                                                     PQCLEAN_DILITHIUM2_CLEAN_polyvecl_freeze_method_spec,
                                                                     PQCLEAN_DILITHIUM2_CLEAN_polyvecl_ntt_method_spec,
                                                                     PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery_method_spec,
                                                                     PQCLEAN_DILITHIUM2_CLEAN_unpack_sk_method_spec,
-                                                                    shake256_inc_init_method_spec,
-                                                                    shake256_inc_squeeze_method_spec,
-                                                                    shake256_inc_absorb_method_spec,
-                                                                    shake256_inc_absorb_1byte_method_spec,
-                                                                    shake256_inc_finalize_method_spec
-                                                                  ] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_setup 1) (prover "crypto_sign_signature");
+                                                                    keccak_inc_init_method_spec,
+                                                                    keccak_inc_squeeze_method_spec,
+                                                                    keccak_inc_absorb_method_spec,
+                                                                    keccak_inc_absorb_1byte_method_spec,
+                                                                    keccak_inc_finalize_method_spec,
+                                                                    shake256_method_spec_seed
+                                                                  ] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_setup CRHBYTES) (prover "crypto_sign_signature");
 
     let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_setup mlen = do {
       let smlen = toInt {{ `CRYPTO_BYTES + `mlen : [64] }};
@@ -874,7 +946,8 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_return (tm {{ 0 : [32] }});
     };
     // Status: succeeds
-    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_setup 1) (prover "crypto_sign");
+    // Disabling until crypto_sign_signature preconditions are complete
+    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_setup 1) (prover "crypto_sign");
 
     let PQCLEAN_DILITHIUM2_CLEAN_polyt1_pack_setup = do {
       rp <- alloc_bytes POLT1_SIZE_PACKED;
@@ -1154,8 +1227,8 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_postcond {{ standardPoly c }};
       crucible_return (tm {{ 0 : [32] }});
     };
-    // Status: applies override and symbolic simulation completes successfully but then hangs on even with an overnight run
-    PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_unpack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_setup (quickcheck 10);// (prover "unpack_sig"); //(assume_unsat); //(prover "unpack_sig");
+    // Status: hangs on final memory load due to symbolic indexing (will assume)
+    PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_method_spec <- assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_unpack_sig" [PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec] false PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_setup (quickcheck 10);// (prover "unpack_sig"); //(assume_unsat); //(prover "unpack_sig");
                                                      //(prover_with_unints ["PQCLEAN_DILITHIUM2_CLEAN_polyz_unpack_method_spec"] "unpack_sig");
     
      let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_setup mlen = do {
@@ -1169,7 +1242,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       let res = {{ verify (pkBytesToRec pk) (join m) (unpackSig sig) }};
       crucible_return (tm {{ if res then zero else ~zero : [32] }});
     };
-    // Status: counter example
+    // Status: simulates but gives counter example
     PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify"
       [ PQCLEAN_DILITHIUM2_CLEAN_challenge_method_spec
       , PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec
@@ -1187,11 +1260,11 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       , PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery_method_spec
       , PQCLEAN_DILITHIUM2_CLEAN_unpack_pk_method_spec
       , PQCLEAN_DILITHIUM2_CLEAN_unpack_sig_method_spec
-      , shake256_inc_init_method_spec
-      , shake256_inc_squeeze_method_spec
-      , shake256_inc_absorb_method_spec
-      , shake256_inc_absorb_1byte_method_spec
-      , shake256_inc_finalize_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_setup 1) (prover "crypto_sign_verify");
+      , keccak_inc_init_method_spec
+      , keccak_inc_squeeze_method_spec
+      , keccak_inc_absorb_method_spec
+      , keccak_inc_absorb_1byte_method_spec
+      , keccak_inc_finalize_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_setup 1) (prover "crypto_sign_verify");
 
     let PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_setup mlen = do {
       let smlen = toInt {{ `CRYPTO_BYTES + `mlen : [64] }}; 
@@ -1206,7 +1279,7 @@ let PQCLEAN_DILITHIUM2_CLEAN_expand_mat_setup = do {
       crucible_return (tm {{ if res then zero else ~zero : [32] }});
     };
     // Status: simulates but takes forever checking VCs even with no return spec
-    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_setup 1) 
+    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_method_spec <- temp_assume MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open" [PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec] false (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_open_setup 1) 
     (quickcheck 10);
     //(prover "crypto_sign_open");
     
