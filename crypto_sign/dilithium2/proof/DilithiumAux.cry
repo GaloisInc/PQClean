@@ -11,6 +11,8 @@
 module DilithiumAux where
 import Array
 import Primitive::Asymmetric::Signature::Dilithium::Round2::DilithiumMedium
+import Common::mod_arith (mod_pow)
+import NTTIdx
 
 type ByteArray = Array [64] [8]
 
@@ -171,21 +173,6 @@ packPkImp rho t1 = split (packPk rho (ipvToPv t1))
 reducePoly : Poly -> Poly
 reducePoly p = map (\x -> x % `Q) p
 
-/*
-nttNew : ImpPoly -> ImpPoly
-nttNew [p] = [nttp]
-    where
-    nttp = [ modSum (`Q, [ (mod_mul(`Q, (p@idx), (mod_pow (`Q, zext rk, i)))) 
-                         | idx <- [0..(N - 1)]:[N][width N] 
-                         | i <- [0..(N - 1)]:[N][32]
-                         ])
-           | rk <- rootsOfUnity
-           ]
-
-property nttNewGood (p:[N][22]) =
-  ipToP (nttNew [map zext p]) == ntt (map zext p)
-           */
-
 starts : {len} (fin len, len > 0, 32 >= width (max 256 (2 * len))) => [_][32]
 starts = [0, (2*len) .. N-1]
 
@@ -196,13 +183,18 @@ idxs : {len} (fin len, len > 0, 32 >= width len, 32 >= width (max 256 (2 * len))
 idxs = [ j | start <- starts `{len}, j <- js `{len} start ]
 
 args : {len} (fin len, len > 0, 32 >= width len, 32 >= width (max 256 (2 * len))) => [_]([32], [32], [32])
-args = [ (2 /* TODO: zeta */, j, `len) | j <- idxs `{len} ]
+args = [ (`len, 2 /* TODO: zeta */, j) | j <- idxs `{len} ]
 
 nttImpFold : ImpPoly -> ImpPoly
-nttImpFold p = foldl nttImpBody p allArgs
+nttImpFold p = foldl nttImpBody p nttidxs
+  /*
   where
     allArgs = args`{128} # args`{64} # args`{32} # args`{16} #
               args`{8}   # args`{4}  # args`{2}  # args`{1}
+              */
+
+nttImpFold2 : ImpPoly -> ImpPoly
+nttImpFold2 p = foldl nttImpBody2Wrap p nttidxs
 
 type MONT = 4193792
 
@@ -212,19 +204,48 @@ nttInvImpFold p = [map invReduce pmid]
     f : [32]
     f = fromInteger (((`MONT * `MONT % `Q) * (`Q - 1) % `Q) * ((`Q - 1) / 256) % `Q)
     invReduce pj = nttReduce f pj
-    [pmid] = foldl nttInvImpBody p allArgs
+    [pmid] = foldl nttInvImpBody p nttinvidxs
+    /*
     allArgs = args`{1}  # args`{2}  # args`{4}  # args`{8} #
               args`{16} # args`{32} # args`{64} # args`{128}
+              */
+
+nttInvImpFold2 : ImpPoly -> ImpPoly
+nttInvImpFold2 p = [map invReduce pmid]
+  where
+    f : [32]
+    //f = 0x0000a3fa
+    f = 0x0000a3fa //fromInteger (((`MONT * `MONT % `Q) * (`Q - 1) % `Q) * ((`Q - 1) / 256) % `Q)
+    invReduce pj = nttReduce f pj
+    [pmid] = foldl nttInvImpBody2Wrap p nttinvidxs
 
 nttImpBody : ImpPoly -> ([32], [32], [32]) -> ImpPoly
-nttImpBody [p] (zeta, j, len) = [p'']
+nttImpBody [p] (len, zeta, j) = [p'']
   where
     t = nttReduce zeta (p@(j + len))
     p' = update p (j + len) ((p@j) + 2*`Q - t)
-    p'' = update p' (j + len) ((p@j) + t)
+    p'' = update p' j ((p@j) + t)
+
+nttImpBody2 : ([32], [32], [32]) -> ([32], [32])
+nttImpBody2 (zeta, pj, pjlen) = (pj', pjlen')
+  where
+    t = nttReduce zeta pjlen
+    pjlen' = pj + 2*`Q - t
+    pj' = pj + t
+
+nttImpBody2Wrap : ImpPoly -> ([32], [32], [32]) -> ImpPoly
+nttImpBody2Wrap [p] (len, zeta, j) = [p']
+  where
+    (pj', pjlen') = nttImpBody2 (zeta, (p@j), (p@(j + len)))
+    p' = update (update p (j + len) pjlen') j pj'
+
+property bodyBody2 p len zeta j = j < 256 /\ j + len < 256 /\ j != len ==> p' == p''
+  where
+    p' = nttImpBody2Wrap p  (len, zeta, j)
+    p'' = nttImpBody p (len, zeta, j)
 
 nttInvImpBody : ImpPoly -> ([32], [32], [32]) -> ImpPoly
-nttInvImpBody [p] (zeta, j, len) = [p''']
+nttInvImpBody [p] (len, zeta, j) = [p''']
   where
     t = p@j
     p' = update p j (t + p@(j + len))
@@ -232,14 +253,27 @@ nttInvImpBody [p] (zeta, j, len) = [p''']
     p'' = update p' (j + len) t'
     p''' = update p'' (j + len) (nttReduce zeta t')
 
+nttInvImpBody2 : ([32], [32], [32]) -> ([32], [32])
+nttInvImpBody2 (zeta, pj, pjlen) = (pj', pjlen')
+  where
+    pj' = pj + pjlen
+    pjlen' = nttReduce zeta (pj + 256*`Q - pjlen)
+
+nttInvImpBody2Wrap : ImpPoly -> ([32], [32], [32]) -> ImpPoly
+nttInvImpBody2Wrap [p] (len, zeta, j) = [p']
+  where
+    (pj', pjlen') = nttInvImpBody2 (zeta, (p@j), (p@(j + len)))
+    p' = update (update p (j + len) pjlen') j pj'
+
 nttReduce : [32] -> [32] -> [32]
 nttReduce zeta pj = montgomeryReduce (zext zeta * zext pj)
 
 modEqual : ImpPoly -> ImpPoly -> Bit
 modEqual [p1] [p2] = and [ p1e % `Q == p2e % `Q | p1e <- p1 | p2e <- p2 ]
 
-property nttInvGood p =
-  modEqual (nttInvImpFold (nttImpFold p)) p
+property nttInvGood (p:[N][22]) =
+  modEqual (nttInvImpFold (nttImpFold p')) p'
+    where p' = [map zext p]
 
 zetas : [N][32]
 zetas = [
@@ -289,13 +323,13 @@ nttDirect [p] = [nttp]
 
 
 nttImp : ImpPoly -> ImpPoly
-nttImp a = nttImpFold a // pToIP (nttNew (ipToP a))
+nttImp a = nttImpFold2 a // pToIP (nttNew (ipToP a))
 
 nttVecImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n
 nttVecImp [xs] = [map nttImp xs]
 
 nttInvImp : ImpPoly -> ImpPoly
-nttInvImp a = pToIP (nttInv (ipToP a))
+nttInvImp a = nttInvImpFold2 a // pToIP (nttInv (ipToP a))
 
 nttInvVecImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n
 nttInvVecImp [xs] = [ map nttInvImp xs ]
@@ -314,6 +348,7 @@ standardBytes a = all standardByte a
 
 standard a = 0 <= a /\ a < `Q
 standardPoly [p] = all standard p
+standardPolyVec : {a} (fin a) => ImpPolyVec a -> Bit
 standardPolyVec [v] = all standardPoly v
 
 reducedBound a = 0 <= a /\ a < 2*`Q
@@ -322,6 +357,8 @@ reducedBoundPolyVec [v] = all reducedBoundPoly v
 
 bitCoeff a = a == 0 \/ a == 1
 bitCoeffPoly [a] = all bitCoeff a
+
+bitCoeffPolyVec : {a} (fin a) => ImpPolyVec a -> Bit
 bitCoeffPolyVec [a] = all bitCoeffPoly a
 
 byteBound low high c = low <= c /\ c <= high
@@ -338,3 +375,26 @@ skTupleToRec t = { rho = join t.0, key = join t.1, tr = join t.2, s1 = t.3, s2 =
 pkBytesToRec : [CryptoPublicKeyBytes][8] -> PublicKey
 pkBytesToRec pk = { rho = join rho, t1 = t1 }
   where (rho, t1) = unpackPk pk
+
+// polyChkNorm (from source code)
+polyChkNormImp : ImpPoly -> [32] -> Bit
+polyChkNormImp [a] b = or [ res i >= b | i <- [0..N-1] ]
+  where
+    t i = ((`Q - 1) / 2) - a@i
+    y x = x ^ (x >>$ 31)
+    res i = ((`Q - 1) / 2) - (y (t i))
+
+// polyVecKChkNorm (from source code)
+polyVecChkNormImp : { n } (fin n, n >= 1) => ImpPolyVec n -> [32] -> Bit
+polyVecChkNormImp [pv] b = or [ polyChkNormImp p b | p <- pv ]
+
+useHintPolyImp : ImpPoly -> ImpPoly -> ImpPoly
+useHintPolyImp [rp] [hp] =
+  [ [ zext (useHint (drop r, drop h)) | r <- rp | h <- hp ] ]
+
+useHintPolyVecImp : { n }(fin n, n >= 1) => (ImpPolyVec n, ImpPolyVec n) -> ImpPolyVec n
+useHintPolyVecImp ([rv], [hv]) =
+  [ [ useHintPolyImp hpoly rpoly
+    | hpoly <- hv
+    | rpoly <- rv
+    ] ]
