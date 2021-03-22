@@ -76,6 +76,13 @@ static const uint32_t zetas_inv[N] = {
     7913949, 876248, 777960, 8143293, 518909, 2608894, 8354570
 };
 
+void ntt_body(uint32_t zeta, uint32_t *pj, uint32_t *pjlen) {
+  uint32_t t;
+  t = PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce((uint64_t)zeta * *pjlen);
+  *pjlen = *pj + 2 * Q - t;
+  *pj = *pj + t;
+}
+
 /*************************************************
 * Name:        ntt
 *
@@ -88,26 +95,29 @@ static const uint32_t zetas_inv[N] = {
 **************************************************/
 void PQCLEAN_DILITHIUM2_CLEAN_ntt(uint32_t p[N]) {
     unsigned int len, start, j, k;
-    uint32_t zeta, t;
-    /*printf("\ncoefficients\n");
-    for (int i=0; i<N; i++) {
-        printf("%u,", *(p+i));
-    }*/
+    uint32_t zeta;
     k = 1;
     for (len = 128; len > 0; len >>= 1) {
         for (start = 0; start < N; start = j + len) {
             zeta = zetas[k++];
             for (j = start; j < start + len; ++j) {
+              ntt_body(zeta, &p[j], &p[j + len]);
+              /*
                 t = PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce((uint64_t)zeta * p[j + len]);
                 p[j + len] = p[j] + 2 * Q - t;
                 p[j] = p[j] + t;
+              */
             }
         }
     }
-    /*printf("\ncoefficients after ntt transformation\n");
-    for (int i=0; i<N; i++) {
-        printf("%u,", *(p+i));
-    }*/
+}
+
+void invntt_body(uint32_t zeta, uint32_t *pj, uint32_t *pjlen) {
+    uint32_t t;
+    t = *pj;
+    *pj = t + *pjlen;
+    *pjlen = t + 256 * Q - *pjlen;
+    *pjlen = PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce((uint64_t)zeta * *pjlen);
 }
 
 /*************************************************
@@ -122,7 +132,7 @@ void PQCLEAN_DILITHIUM2_CLEAN_ntt(uint32_t p[N]) {
 **************************************************/
 void PQCLEAN_DILITHIUM2_CLEAN_invntt_frominvmont(uint32_t p[N]) {
     unsigned int start, len, j, k;
-    uint32_t t, zeta;
+    uint32_t zeta;
     const uint32_t f = (((uint64_t)MONT * MONT % Q) * (Q - 1) % Q) * ((Q - 1) >> 8) % Q;
 
     k = 0;
@@ -130,10 +140,13 @@ void PQCLEAN_DILITHIUM2_CLEAN_invntt_frominvmont(uint32_t p[N]) {
         for (start = 0; start < N; start = j + len) {
             zeta = zetas_inv[k++];
             for (j = start; j < start + len; ++j) {
+                invntt_body(zeta, &p[j], &p[j + len]);
+                /*
                 t = p[j];
                 p[j] = t + p[j + len];
                 p[j + len] = t + 256 * Q - p[j + len];
                 p[j + len] = PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce((uint64_t)zeta * p[j + len]);
+                */
             }
         }
     }
