@@ -12,6 +12,7 @@ module DilithiumAux where
 import Array
 import Primitive::Asymmetric::Signature::Dilithium::Round2::DilithiumMedium
 import Common::mod_arith (mod_pow)
+import Primitive::Keyless::Hash::keccak as SHA3 (SHAKE256)
 import NTTIdx
 
 type ByteArray = Array [64] [8]
@@ -134,8 +135,8 @@ polyVecFreezeImp [xs] = [ map polyFreezeImp xs ]
 polyShiftlImp : ImpPoly -> ImpPoly
 polyShiftlImp xs = [ [ x << `D | x <- (xs@0)] ]
 
-polyVecShiftlImp : {dim} [dim]ImpPoly -> [dim]ImpPoly
-polyVecShiftlImp = map polyShiftlImp
+polyVecShiftlImp : {dim} ImpPolyVec dim -> ImpPolyVec dim
+polyVecShiftlImp [p] = [map polyShiftlImp p]
 
 coeffBound low high c = low <$ c /\ c <$ high
 coeffBoundGEq low high c = low <=$ c /\ c <$ high
@@ -398,3 +399,62 @@ useHintPolyVecImp ([rv], [hv]) =
     | hpoly <- hv
     | rpoly <- rv
     ] ]
+
+type Shake256State = [26][64]
+
+keccak_init : Shake256State
+keccak_init = zero // TODO
+
+keccak_absorb : {a} Shake256State -> [a][8] -> Shake256State
+keccak_absorb s m = zero // join (transpose (absorb`{w=64} (pad`{r= (RATE*8)} (join [reverse x | x<-m]#0b1111)))) }};// TODO
+
+keccak_squeeze : Shake256State -> [CrhBytes][8]
+keccak_squeeze s = zero // join (transpose(Keccak_f(transpose (split s:[5][5][64])))) // TODO
+
+keccak_finalize : Shake256State -> Shake256State
+keccak_finalize s = s // TODO
+
+shake256 = SHA3::SHAKE256
+
+verifyImp :
+  { mbytes }
+  (fin mbytes, mbytes >= 0) =>
+  [CryptoPublicKeyBytes][8] -> [mbytes][8] -> [SigSizePacked][8] -> Bit
+verifyImp pk m sig = /*crit1 &&*/ crit2 // && crit3 // TODO: other criteria
+  where
+    (rho, t1) = unpackPk pk
+    (z, h, c) = unpackSig sig
+    z'        : ImpPolyVec L
+    z'        = pvToIpv z
+    h'        = pvToIpv h
+    c'        = pToIP c
+    crit1     = polyVecChkNormImp z' (GAMMA1 - zext BETA)
+    mu0       : [_][8]
+    mu0       = split (crh (join pk))
+    s0        = keccak_init
+    s1        = keccak_absorb s0 mu0
+    s2        = keccak_absorb s1 m
+    s3        = keccak_finalize s2
+    mu        = keccak_squeeze s3
+    mat       = map pvToIpv (expandA rho)
+    zntt      = nttVecImp z'
+    tmp1      = [ map (\row -> nttDotProductImp row zntt) mat ]
+    chat      = nttImp c'
+    t1'       : ImpPolyVec K
+    t1'       = pvToIpv t1
+    t1''      = nttVecImp (polyVecShiftlImp t1')
+    tmp2      = [ map (\row -> nttPolyMultImp chat row) (t1'@0) ]
+    tmp1'     = polyVecCsubqImp (nttInvVecImp (polyVecReduceImp (polyVecSubImp tmp1 tmp2)))
+    w1        = useHintPolyVecImp (tmp1', h')
+    cp        = pToIP (hash (join mu, ipvToPv w1))
+    crit2     = c' == cp
+
+openImp :
+  { smbytes }
+  (fin smbytes, smbytes >= SigSizePacked, 64 >= width (smbytes - 2044)) =>
+  [CryptoPublicKeyBytes][8] -> [smbytes][8] -> ([smbytes-SigSizePacked][8], [64], [32])
+openImp pk sm =
+  if verifyImp pk m sig then (m, `(smbytes-SigSizePacked), 0) else (zero, -1, -1)
+    where
+      sig = take sm
+      m = drop sm
