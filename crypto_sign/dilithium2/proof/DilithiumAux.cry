@@ -51,6 +51,22 @@ property decomposeEq (a : [23]) = 0 <$ a /\ a <$ `Q ==> sext a0 == a0n /\ sext a
     (a1n, a0n) = decomposeNew (sext a)
 
 
+makeHintImp : [32] -> [32] -> [32]
+makeHintImp a0 a1 =
+  if (a0 <= GAMMA2 \/ a0 > `Q - GAMMA2 \/ (a0 == `Q - GAMMA2 /\ a1 == 0))
+  then 0
+  else 1
+
+polyMakeHintImp : ImpPoly -> ImpPoly -> (ImpPoly, [32])
+polyMakeHintImp [a0] [a1] = ([hs], sum hs)
+  where
+    hs = [ makeHintImp c0 c1 | c0 <- a0 | c1 <- a1 ]
+
+polyVecMakeHintImp : {n} (fin n) => ImpPolyVec n -> ImpPolyVec n -> (ImpPolyVec n, [32])
+polyVecMakeHintImp [v0] [v1] = ([hs.0], sum hs.1)
+  where
+    hs = [ polyMakeHintImp p0 p1 | p0 <- v0 | p1 <- v1 ]
+
 // Cryptol utilities
    
 montgomeryReduce : [64] -> [32]
@@ -379,11 +395,11 @@ pkBytesToRec pk = { rho = join rho, t1 = t1 }
 
 // polyChkNorm (from source code)
 polyChkNormImp : ImpPoly -> [32] -> Bit
-polyChkNormImp [a] b = or [ res i >= b | i <- [0..N-1] ]
+polyChkNormImp [a] b = False /* or [ res i >= b | i <- [0..N-1] ]
   where
     t i = ((`Q - 1) / 2) - a@i
     y x = x ^ (x >>$ 31)
-    res i = ((`Q - 1) / 2) - (y (t i))
+    res i = ((`Q - 1) / 2) - (y (t i)) */
 
 // polyVecKChkNorm (from source code)
 polyVecChkNormImp : { n } (fin n, n >= 1) => ImpPolyVec n -> [32] -> Bit
@@ -416,6 +432,51 @@ keccak_finalize s = s // TODO
 
 shake256 = SHA3::SHAKE256
 
+signSignatureImp :
+  { mbytes }
+  (fin mbytes, mbytes >= 0) =>
+  [CryptoSecretKeyBytes][8] -> [mbytes][8] -> [SigSizePacked][8]
+signSignatureImp sk m = split sig
+  where
+    (rho, key, tr, s1, s2, t0) = unpackSk sk
+    s1'       = pvToIpv s1
+    s2'       = pvToIpv s2
+    t0'       = pvToIpv t0
+    st0       = keccak_init
+    st1       = keccak_absorb st0 tr
+    st2       = keccak_absorb st1 m
+    st3       = keccak_finalize st2
+    mu        = keccak_squeeze st3
+    rhoprime  : [_][8]
+    rhoprime  = split (crh (join key))
+    mat       = map pvToIpv (expandA rho)
+    s1ntt     = nttVecImp s1'
+    s2ntt     = nttVecImp s2'
+    t0ntt     = nttVecImp t0'
+    y         = undefined // TODO: sample
+    yhat      = nttVecImp y
+    w         = polyVecCsubqImp (nttInvVecImp (polyVecReduceImp [ map (\row -> nttDotProductImp row yhat) mat ]))
+    (w1, w0)  = decomposePolyVec (ipvToPv w)
+    w0'       = pvToIpv w0
+    w1'       = pvToIpv w1
+    c         = undefined // pToIP (hash (join mu, ipvToPv w1'))
+    chat      = nttImp c
+    cs2       = undefined // TODO
+    w0''      = polyVecFreezeImp (polyVecSubImp w0' cs2)
+    z         = undefined // TODO: same as above TODO
+    z'        = polyVecFreezeImp (polyVecAddImp z y)
+    ct0       = undefined // polyVecCsubqImp undefined // TODO: same as above TODO
+    w0'''     = polyVecCsubqImp (polyVecAddImp w0'' ct0)
+    n         = undefined // makeHintPolyVecNew (ipvToPv w0''', ipvToPv w1')
+    h         = undefined // TODO: from make_hint
+    sig       = packSig (ipvToPv z', ipvToPv h, ipToP c)
+
+signImp :
+  { mbytes }
+  (fin mbytes, mbytes >= 0) =>
+  [CryptoSecretKeyBytes][8] -> [mbytes][8] -> [SigSizePacked+mbytes][8]
+signImp sk m = signSignatureImp sk m # m
+
 verifyImp :
   { mbytes }
   (fin mbytes, mbytes >= 0) =>
@@ -431,11 +492,11 @@ verifyImp pk m sig = /*crit1 &&*/ crit2 // && crit3 // TODO: other criteria
     crit1     = polyVecChkNormImp z' (GAMMA1 - zext BETA)
     mu0       : [_][8]
     mu0       = split (crh (join pk))
-    s0        = keccak_init
-    s1        = keccak_absorb s0 mu0
-    s2        = keccak_absorb s1 m
-    s3        = keccak_finalize s2
-    mu        = keccak_squeeze s3
+    st0       = keccak_init
+    st1       = keccak_absorb st0 mu0
+    st2       = keccak_absorb st1 m
+    st3       = keccak_finalize st2
+    mu        = keccak_squeeze st3
     mat       = map pvToIpv (expandA rho)
     zntt      = nttVecImp z'
     tmp1      = [ map (\row -> nttDotProductImp row zntt) mat ]
