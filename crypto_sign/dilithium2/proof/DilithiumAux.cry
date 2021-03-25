@@ -455,7 +455,7 @@ useHintPolyVecImp ([rv], [hv]) =
 type Shake256State = [26][64]
 
 keccak_init : Shake256State
-keccak_init = zero // TODO
+keccak_init = zero
 
 keccak_absorb : {a} Shake256State -> [a][8] -> Shake256State
 keccak_absorb s m = zero // join (transpose (absorb`{w=64} (pad`{r= (RATE*8)} (join [reverse x | x<-m]#0b1111)))) }};// TODO
