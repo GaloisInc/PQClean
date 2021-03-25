@@ -1187,7 +1187,7 @@ let prove_dilithium MODULE MODE = do {
       crucible_return (tm {{ if res then zero else ~zero : [32] }});
     };
     // Status: succeeds
-    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec <- verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify"
+    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify_method_spec <- slow_verify MODULE "PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_verify"
       [ PQCLEAN_DILITHIUM2_CLEAN_challenge_method_spec
       , PQCLEAN_DILITHIUM2_CLEAN_expand_mat_method_spec
       , PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_method_spec
