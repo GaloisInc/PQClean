@@ -215,6 +215,9 @@ unpackSigImp sig = (pvToIpv z, pvToIpv h, pToIP c)
   where
     (z, h, c) = unpackSig sig
 
+packSigImp : (ImpPolyVec L, ImpPolyVec K, ImpPoly) -> [SigSizePacked][8]
+packSigImp (z, h, c) = split (packSig (ipvToPv z, ipvToPv h, ipToP c))
+
 expandAImp : [SeedBytes][8] -> [K](ImpPolyVec L)
 expandAImp rho = pmToIpm (expandA rho)
 
@@ -452,17 +455,24 @@ useHintPolyVecImp ([rv], [hv]) =
     | hpoly <- hv
     ] ]
 
+// NB: definition doesn't matter because we never look at it
+samplePolyImp : ([CrhBytes][8], [16]) -> ImpPoly
+samplePolyImp (rho, kappa) = zero
+
 type Shake256State = [26][64]
 
 keccak_init : Shake256State
 keccak_init = zero
 
+// NB: definition doesn't matter because we never look at it
 keccak_absorb : {a} Shake256State -> [a][8] -> Shake256State
 keccak_absorb s m = zero // join (transpose (absorb`{w=64} (pad`{r= (RATE*8)} (join [reverse x | x<-m]#0b1111)))) }};// TODO
 
+// NB: definition doesn't matter because we never look at it
 keccak_squeeze : Shake256State -> [CrhBytes][8]
 keccak_squeeze s = zero // join (transpose(Keccak_f(transpose (split s:[5][5][64])))) // TODO
 
+// NB: definition doesn't matter because we never look at it
 keccak_finalize : Shake256State -> Shake256State
 keccak_finalize s = s // TODO
 
@@ -478,7 +488,7 @@ signSignatureImp :
   { mbytes }
   (fin mbytes, mbytes >= 0) =>
   [CryptoSecretKeyBytes][8] -> [mbytes][8] -> [SigSizePacked][8]
-signSignatureImp sk m = split sig
+signSignatureImp sk m = sig
   where
     (rho, key, tr, s1, s2, t0) = unpackSkImp sk
     st0       = keccak_init
@@ -491,23 +501,20 @@ signSignatureImp sk m = split sig
     s1ntt     = nttVecImp s1
     s2ntt     = nttVecImp s2
     t0ntt     = nttVecImp t0
-    y         = undefined // TODO: sample
+    y         = [ [ samplePolyImp (rhoprime, nonce) | nonce <- [0..L-1] ] ]
     yhat      = nttVecImp y
     w         = polyVecCsubqImp (nttInvVecImp (polyVecReduceImp [ map (\row -> nttDotProductImp row yhat) mat ]))
-    (w1, w0)  = decomposePolyVec (ipvToPv w)
-    w0'       = pvToIpv w0
-    w1'       = pvToIpv w1
-    c         = hashImp mu w1'
+    (w1, w0)  = decomposePolyVecImp w
+    c         = hashImp mu w1
     chat      = nttImp c
-    cs2       = nttInvVecImp [ map (\row -> nttPolyMultImp row chat) (s2ntt@0) ]
-    w0''      = polyVecFreezeImp (polyVecSubImp w0' cs2)
-    z         = nttInvVecImp [ map (\row -> nttPolyMultImp row chat) (s1ntt@0) ]
+    cs2       = nttInvVecImp [ map (\row -> nttPolyMultImp chat row) (s2ntt@0) ]
+    w0'       = polyVecFreezeImp (polyVecSubImp w0 cs2)
+    z         = nttInvVecImp [ map (\row -> nttPolyMultImp chat row) (s1ntt@0) ]
     z'        = polyVecFreezeImp (polyVecAddImp z y)
-    ct0       = polyVecCsubqImp (nttInvVecImp [ map (\row -> nttPolyMultImp row chat) (t0ntt@0) ])
-    w0'''     = polyVecCsubqImp (polyVecAddImp w0'' ct0)
-    n         = makeHintPolyVecNew (ipvToPv w0''', ipvToPv w1')
-    h         = undefined // TODO: from make_hint
-    sig       = packSig (ipvToPv z', ipvToPv h, ipToP c)
+    ct0       = polyVecCsubqImp (nttInvVecImp [ map (\row -> nttPolyMultImp chat row) (t0ntt@0) ])
+    w0''      = polyVecCsubqImp (polyVecAddImp w0' ct0)
+    (h, n)    = polyVecMakeHintImp w0'' w1
+    sig       = packSigImp (z', h, c)
 
 signImp :
   { mbytes }
@@ -523,7 +530,7 @@ verifyImp pk m sig = /*crit1 &&*/ crit2 // && crit3 // TODO: other criteria
   where
     (rho, t1) = unpackPkImp pk
     (z, h, c) = unpackSigImp sig
-    crit1     = polyVecChkNormImp z (GAMMA1 - zext BETA)
+    //crit1     = polyVecChkNormImp z (GAMMA1 - zext BETA)
     mu0       = crhImp pk
     st0       = keccak_init
     st1       = keccak_absorb st0 mu0
