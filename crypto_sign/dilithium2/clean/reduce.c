@@ -14,6 +14,7 @@
 **************************************************/
 uint32_t PQCLEAN_DILITHIUM2_CLEAN_montgomery_reduce(uint64_t a) {
     uint64_t t;
+
     t = a * QINV;
     t &= (1ULL << 32) - 1;
     t *= Q;

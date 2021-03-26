@@ -124,7 +124,7 @@ void PQCLEAN_DILITHIUM2_CLEAN_unpack_sk(unsigned char rho[SEEDBYTES],
                                         polyveck *t0,
                                         const unsigned char sk[CRYPTO_SECRETKEYBYTES]) {
     unsigned int i;
-    printf("CRYPTO_SECRETKEYBYTES=%u\n\n", CRYPTO_SECRETKEYBYTES);
+
     for (i = 0; i < SEEDBYTES; ++i) {
         rho[i] = sk[i];
     }

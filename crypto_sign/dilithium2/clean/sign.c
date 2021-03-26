@@ -101,15 +101,7 @@ void PQCLEAN_DILITHIUM2_CLEAN_challenge(poly *c,
 **************************************************/
 int PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair(uint8_t *pk, uint8_t *sk) {
     unsigned int i;
-    unsigned char seedbuf[3 * SEEDBYTES]= {0x7c, 0x99, 0x35, 0xa0, 0xb0, 0x76, 0x94, 0xaa, 0x0c, 0x6d, 0x10,
-                                            0xe4, 0xdb, 0x6b, 0x1a, 0xdd, 0x2f, 0xd8, 0x1a, 0x25, 0xcc, 0xb1,
-                                            0x48, 0x03, 0x2d, 0xcd, 0x73, 0x99, 0x36, 0x73, 0x7f, 0x2d, 0xb5,
-                                            0x05, 0xd7, 0xcf, 0xad, 0x1b, 0x49, 0x74, 0x99, 0x32, 0x3c, 0x86,
-                                            0x86, 0x32, 0x5e, 0x47, 0x92, 0xf2, 0x67, 0xaa, 0xfa, 0x3f, 0x87,
-                                            0xca, 0x60, 0xd0, 0x1c, 0xb5, 0x4f, 0x29, 0x20, 0x2a, 0x3e, 0x78,
-                                            0x4c, 0xcb, 0x7e, 0xbc, 0xdc, 0xfd, 0x45, 0x54, 0x2b, 0x7f, 0x6a,
-                                            0xf7, 0x78, 0x74, 0x2e, 0x0f, 0x44, 0x79, 0x17, 0x50, 0x84, 0xaa,
-                                            0x48, 0x8b, 0x3b, 0x74, 0x34, 0x06, 0x78, 0xaa };
+    unsigned char seedbuf[3 * SEEDBYTES];
     unsigned char tr[CRHBYTES];
     const unsigned char *rho, *rhoprime, *key;
     uint16_t nonce = 0;
@@ -118,7 +110,7 @@ int PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair(uint8_t *pk, uint8_t *sk) {
     polyveck s2, t, t1, t0;
 
     /* Expand 32 bytes of randomness into rho, rhoprime and key */
-    //randombytes(seedbuf, 3 * SEEDBYTES);
+    randombytes(seedbuf, 3 * SEEDBYTES);
     rho = seedbuf;
     rhoprime = seedbuf + SEEDBYTES;
     key = seedbuf + 2 * SEEDBYTES;
@@ -130,7 +122,6 @@ int PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair(uint8_t *pk, uint8_t *sk) {
     for (i = 0; i < L; ++i) {
         PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_eta(&s1.vec[i], rhoprime, nonce++);
     }
-
     for (i = 0; i < K; ++i) {
         PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_eta(&s2.vec[i], rhoprime, nonce++);
     }
@@ -138,7 +129,6 @@ int PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair(uint8_t *pk, uint8_t *sk) {
     /* Matrix-vector multiplication */
     s1hat = s1;
     PQCLEAN_DILITHIUM2_CLEAN_polyvecl_ntt(&s1hat);
-
     for (i = 0; i < K; ++i) {
         PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery(&t.vec[i], &mat[i], &s1hat);
         PQCLEAN_DILITHIUM2_CLEAN_poly_reduce(&t.vec[i]);
@@ -152,6 +142,7 @@ int PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair(uint8_t *pk, uint8_t *sk) {
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_freeze(&t);
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_power2round(&t1, &t0, &t);
     PQCLEAN_DILITHIUM2_CLEAN_pack_pk(pk, rho, &t1);
+
     /* Compute CRH(rho, t1) and write secret key */
     crh(tr, pk, CRYPTO_PUBLICKEYBYTES);
     PQCLEAN_DILITHIUM2_CLEAN_pack_sk(sk, rho, key, tr, &s1, &s2, &t0);
@@ -171,12 +162,14 @@ int PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature(
     polyvecl mat[K], s1, y, yhat, z;
     polyveck t0, s2, w, w1, w0;
     polyveck h, cs2, ct0;
+
     rho = seedbuf;
     tr = rho + SEEDBYTES;
     key = tr + CRHBYTES;
     mu = key + SEEDBYTES;
     rhoprime = mu + CRHBYTES;
     PQCLEAN_DILITHIUM2_CLEAN_unpack_sk(rho, key, tr, &s1, &s2, &t0, sk);
+
 
     // use incremental hash API instead of copying around buffers
     /* Compute CRH(tr, msg) */
@@ -185,15 +178,12 @@ int PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature(
     shake256_inc_absorb(&state, tr, CRHBYTES);
     shake256_inc_absorb(&state, m, mlen);
     shake256_inc_finalize(&state);
-    // Mu at step 10 in Figure 4
     shake256_inc_squeeze(mu, CRHBYTES, &state);
 
-    //rhoprime at step 12 in Figure 4
     crh(rhoprime, key, SEEDBYTES + CRHBYTES);
 
     /* Expand matrix and transform vectors */
     PQCLEAN_DILITHIUM2_CLEAN_expand_mat(mat, rho);
-
     PQCLEAN_DILITHIUM2_CLEAN_polyvecl_ntt(&s1);
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_ntt(&s2);
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_ntt(&t0);
@@ -207,7 +197,6 @@ rej:
     /* Matrix-vector multiplication */
     yhat = y;
     PQCLEAN_DILITHIUM2_CLEAN_polyvecl_ntt(&yhat);
-
     for (i = 0; i < K; ++i) {
         PQCLEAN_DILITHIUM2_CLEAN_polyvecl_pointwise_acc_invmontgomery(&w.vec[i], &mat[i], &yhat);
         PQCLEAN_DILITHIUM2_CLEAN_poly_reduce(&w.vec[i]);
@@ -218,7 +207,6 @@ rej:
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_csubq(&w);
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_decompose(&w1, &w0, &w);
     PQCLEAN_DILITHIUM2_CLEAN_challenge(&c, mu, &w1);
-
     chat = c;
     PQCLEAN_DILITHIUM2_CLEAN_poly_ntt(&chat);
 
@@ -230,7 +218,6 @@ rej:
     }
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_sub(&w0, &w0, &cs2);
     PQCLEAN_DILITHIUM2_CLEAN_polyveck_freeze(&w0);
-
     if (PQCLEAN_DILITHIUM2_CLEAN_polyveck_chknorm(&w0, GAMMA2 - BETA)) {
         goto rej;
     }
@@ -240,10 +227,7 @@ rej:
         PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery(&z.vec[i], &chat, &s1.vec[i]);
         PQCLEAN_DILITHIUM2_CLEAN_poly_invntt_montgomery(&z.vec[i]);
     }
-   // CS1 doesn't match it seems
-
     PQCLEAN_DILITHIUM2_CLEAN_polyvecl_add(&z, &z, &y);
-
     PQCLEAN_DILITHIUM2_CLEAN_polyvecl_freeze(&z);
     if (PQCLEAN_DILITHIUM2_CLEAN_polyvecl_chknorm(&z, GAMMA1 - BETA)) {
         goto rej;
@@ -418,20 +402,4 @@ badsig:
 
     return -1;
 }
-int main()
-{
-    uint8_t pk[CRYPTO_PUBLICKEYBYTES]={0};
-    uint8_t sk[CRYPTO_SECRETKEYBYTES]={0};
-    uint8_t sm[2077]={0};
-    size_t smlen[1]={2077};
-    const uint8_t m[33]={0xd8, 0x1c, 0x4d, 0x8d, 0x73, 0x4f, 0xcb, 0xfb, 0xea, 0xde, 0x3d,
-                          0x3f, 0x8a, 0x03, 0x9f, 0xaa, 0x2a, 0x2c, 0x99, 0x57, 0xe8, 0x35,
-                          0xad, 0x55, 0xb2, 0x2e, 0x75, 0xbf, 0x57, 0xbb, 0x55, 0x6a, 0xc8};
-    size_t mlen=33;
 
-    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair(pk, sk);
-
-    PQCLEAN_DILITHIUM2_CLEAN_crypto_sign(sm, smlen, m, mlen, sk);
-
-    return 0;
-}

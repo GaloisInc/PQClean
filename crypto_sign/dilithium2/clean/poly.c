@@ -364,21 +364,14 @@ static unsigned int rej_eta(uint32_t *a,
     while (ctr < len && pos < buflen) {
         t0 = buf[pos] & 0x0F;
         t1 = buf[pos++] >> 4;
-        //printf("\nt0=%u, t1=%u\n", t0, t1);
 
         if (t0 <= 2 * ETA) {
             a[ctr++] = Q + ETA - t0;
-           // printf(" Q+ ETA - t0=%u",  Q+ ETA - t0);
         }
         if (t1 <= 2 * ETA && ctr < len) {
             a[ctr++] = Q + ETA - t1;
-           // printf(" Q+ ETA - t1=%u",  Q+ ETA - t1);
         }
     }
-   /* printf("\nprinting a\n");
-    for (int i=0; i<N; ++i)
-        printf("%u,", a[i]);
-    printf("ETA=%u, Q=%u\n", ETA, Q);*/
 
     return ctr;
 }
@@ -404,24 +397,16 @@ void PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_eta(poly *a,
     unsigned int ctr;
     unsigned char buf[POLY_UNIFORM_ETA_BUFLEN];
     shake128ctx state;
-    //printf("\nnonce=%u\n", nonce);
+
     stream128_init(&state, seed, nonce);
     stream128_squeezeblocks(buf, POLY_UNIFORM_ETA_NBLOCKS, &state);
-    /*for (int i=0; i<POLY_UNIFORM_ETA_BUFLEN; i++)
-        printf("%02X", buf[i]);*/
-    ctr = rej_eta(a->coeffs, N, buf, POLY_UNIFORM_ETA_BUFLEN);
-    //printf("\nPOLY_UNIFORM_ETA_BUFLEN=%u\n", POLY_UNIFORM_ETA_BUFLEN);
 
+    ctr = rej_eta(a->coeffs, N, buf, POLY_UNIFORM_ETA_BUFLEN);
 
     while (ctr < N) {
         stream128_squeezeblocks(buf, 1, &state);
         ctr += rej_eta(a->coeffs + ctr, N - ctr, buf, STREAM128_BLOCKBYTES);
     }
-   /* printf("[");
-    for(int i=0; i<N; ++i)
-    printf("%u, ", a->coeffs[i]);
-    printf("]");*/
-
 }
 
 /*************************************************
@@ -494,12 +479,7 @@ void PQCLEAN_DILITHIUM2_CLEAN_poly_uniform_gamma1m1(poly *a,
 
     stream256_init(&state, seed, nonce);
     stream256_squeezeblocks(buf, POLY_UNIFORM_GAMMA1M1_NBLOCKS, &state);
-    //POLY_UNIFORM_GAMMA1M1_NBLOCKS=5
-    //POLY_UNIFORM_GAMMA1M1_BUFLEN=680
-    //STREAM256_BLOCKBYTES
-   // printf("STREAM256_BLOCKBYTES=%u\n\n", STREAM256_BLOCKBYTES);
-    //for (int i=0; i<POLY_UNIFORM_GAMMA1M1_NBLOCKS; i++)
-     //printf("%02X", buf[i]);
+
     ctr = rej_gamma1m1(a->coeffs, N, buf, buflen);
 
     while (ctr < N) {
