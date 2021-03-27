@@ -4,101 +4,61 @@
 
    See https://pq-crystals.org/dilithium/data/dilithium-specification.pdf
    Copyright (c) 2021, Galois Inc.
-   www.cryptol.net
-   You can freely use this source code for educational purposes.
    Authors: Ajay Kumar Eeralla and Aaron Tomb
 */
 module DilithiumAux where
 import Array
-import Primitive::Asymmetric::Signature::Dilithium::Round2::DilithiumMedium
+import Primitive::Asymmetric::Signature::Dilithium::Round2::DilithiumMedium (
+  Poly,
+  ALPHA,
+  N,
+  Q,
+  QINV,
+  D,
+  L,
+  K,
+  GAMMA2,
+  CrhBytes,
+  PolyVec,
+  IntPolyVec,
+  SigSizePacked,
+  SeedBytes,
+  CryptoPublicKeyBytes,
+  CryptoSecretKeyBytes,
+  PolEtaSizePacked,
+  PolZSizePacked,
+  SecretKey,
+  PublicKey,
+  //decompose,
+  decomposeNew,
+  mod_mul,
+  unpackPk,
+  unpackSk,
+  unpackSig,
+  packSig,
+  packPk,
+  packSk,
+  packPolyEta,
+  polyZPack,
+  polyT0Unpack,
+  polyT1Unpack,
+  polyT0Pack,
+  polyT1Pack,
+  unpackPolyEta,
+  gen,
+  polyPower2Round,
+  power2RoundPolyVec,
+  expandA,
+  crh,
+  hash,
+  polyUniformEta
+)
 import Common::mod_arith (mod_pow)
 import Common::utils (unzip)
 import Primitive::Keyless::Hash::keccak as SHA3 (SHAKE256)
 import NTTIdx
 
-type ByteArray = Array [64] [8]
-
-// Dilithium II (Medium) parameters
-//type K = 4
-//type L = 3
-//ETA = 6
-//BETA = 325
-//type Omega = 80
-
-// a1 and a0 represent low, high order bits respectively.
-decomposePc (a1 : [23]) (a0 : [23]) (a : [23]) =
-  if a1 != (`Q - 1)/ALPHA
-  // This is satisfied by decompose but not decomposeNew
-  then mod_pow(`Q, a, 1) == a1*ALPHA + a0 /\ -ALPHA/2 <$ a0 /\ a0 <=$ ALPHA/2
-  // This is satisfied by decomposeNew and decompose
-  else a1 == 0 /\ a0 == mod_pow(`Q, a, 1) - `Q  /\ -ALPHA/2 <=$ a0 /\ a0 <$ 0
-                               
-decomposePolyPc : Poly -> Poly -> Poly -> Bit 
-decomposePolyPc plb phb p = and [ decomposePc a1 a0 a | a1 <- plb | a0 <- phb | a <- p ]
-
-decomposePolyVecPc : { n } (fin n, n >= 1) => PolyVec n -> PolyVec n -> PolyVec n -> Bit 
-decomposePolyVecPc pvlb pvhb pv = and [ decomposePolyPc plb phb p | plb <- pvlb | phb <- pvhb | p <- pv ]
-
-property decomposePcGood (a:[23]) =
-  0 <$ a /\ a <$ `Q ==>
-  (decomposePc a1 a0 a /\ decomposePc (drop a1n) (drop a0n) a)
-    where
-      (a1, a0) = decompose a
-      (a1n, a0n) = decomposeNew (sext a)
-
-property decomposeEq (a : [23]) = 0 <$ a /\ a <$ `Q ==> sext a0 == a0n /\ sext a1 == a1n
-  where
-    (a1, a0) = decompose a
-    (a1n, a0n) = decomposeNew (sext a)
-
-
-decomposeImp = decomposeNew
-
-decomposePolyImp : ImpPoly -> (ImpPoly, ImpPoly)
-decomposePolyImp [p] = ([p1], [p2])
-  where
-   (p1, p2) = unzip [ decomposeImp x | x <- p ]
-
-decomposePolyVecImp : { n } (fin n, n >= 1) => ImpPolyVec n  -> (ImpPolyVec n, ImpPolyVec n)
-decomposePolyVecImp [r] = ([pv1], [pv2])
-  where
-    (pv1, pv2) = unzip [ decomposePolyImp p | p <- r ]
-
-makeHintImp : [32] -> [32] -> [32]
-makeHintImp a0 a1 =
-  if (a0 <= GAMMA2 \/ a0 > `Q - GAMMA2 \/ (a0 == `Q - GAMMA2 /\ a1 == 0))
-  then 0
-  else 1
-
-polyMakeHintImp : ImpPoly -> ImpPoly -> (ImpPoly, [32])
-polyMakeHintImp [a0] [a1] = ([hs], sum hs)
-  where
-    hs = [ makeHintImp c0 c1 | c0 <- a0 | c1 <- a1 ]
-
-polyVecMakeHintImp : {n} (fin n) => ImpPolyVec n -> ImpPolyVec n -> (ImpPolyVec n, [32])
-polyVecMakeHintImp [v0] [v1] = ([hs.0], sum hs.1)
-  where
-    hs = [ polyMakeHintImp p0 p1 | p0 <- v0 | p1 <- v1 ]
-
-// Cryptol utilities
-   
-montgomeryReduce : [64] -> [32]
-montgomeryReduce a = drop ((a + (((a * QINV) && 0x00000000ffffffff) * `Q)) >> 32)
-
-property reduceGood (a : [54]) =
-  mod_mul (`Q, zext (montgomeryReduce (zext a)), `M) == a % `Q
-    where
-      type M = (2 ^^ 32) % Q
-
-reduce32 : [32] -> [32]
-reduce32 a = (a && 0x007FFFFF) + (b << 13) - b
-  where b = a >> 23
-
-csubq : [32] -> [32]
-csubq a = b + ((b >>$ 31) && `Q)
-  where b = a - `Q
-
-freeze a = csubq (reduce32 a)
+// Relation between abstract and implementation polynomials
 
 type ImpPoly = [1][N][32]
 type ImpPolyVec dim = [1][dim]ImpPoly
@@ -129,19 +89,136 @@ property ipPGood p =
   all (\w -> w < 0x00400000) (p@0) ==>
   pToIP (ipToP p) == p
 
-// NB: different from spec, because it doesn't reduce
-polyAddImp : ImpPoly -> ImpPoly -> ImpPoly
-polyAddImp = (+)
+// Bounding utilities
 
-polyVecAddImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n -> ImpPolyVec n
-polyVecAddImp [xs] [ys] = [ [ polyAddImp xp yp | xp <- xs | yp <- ys ] ]
+coeffBound low high c = low <$ c /\ c <$ high
+coeffBoundGEq low high c = low <=$ c /\ c <$ high
+coeffBoundLGEq low high c = low <=$ c /\ c <=$ high
+coeffBoundLEq low high c = low <$ c /\ c <=$ high
 
-// NB: different from spec, because it doesn't reduce
-polySubImp : ImpPoly -> ImpPoly -> ImpPoly
-polySubImp xs ys = [ [ x + 2*`Q - y | x <- xs@0 | y <- ys@0 ] ]
+polyBoundLEq : [32] -> [32] -> ImpPoly -> Bit
+polyBoundLEq low high [xs] = all (coeffBoundLEq low high) xs
 
-polyVecSubImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n -> ImpPolyVec n
-polyVecSubImp [xs] [ys] = [ [ polySubImp xp yp | xp <- xs | yp <- ys ] ]
+polyBoundLGEq : [32] -> [32] -> ImpPoly -> Bit
+polyBoundLGEq low high [xs] = all (coeffBoundLGEq low high) xs
+
+polyBound : [32] -> [32] -> ImpPoly -> Bit
+polyBound low high [xs] = all (coeffBound low high) xs
+
+polyBoundGEq : [32] -> [32] -> ImpPoly -> Bit
+polyBoundGEq low high [xs] = all (coeffBoundGEq low high) xs
+
+polyVecBound : {m} (fin m, m >= 1) => [32] -> [32] -> ImpPolyVec m  -> Bit
+polyVecBound low high [xs] = and [ (polyBound low high p) | p <- xs ]
+
+polyVecBoundGEq : {m} (fin m, m >= 1) => [32] -> [32] -> ImpPolyVec m  -> Bit
+polyVecBoundGEq low high [xs] = and [ (polyBoundGEq low high p) | p <- xs ]
+
+polyVecBoundLEq : {m} (fin m, m >= 1) => [32] -> [32] -> ImpPolyVec m  -> Bit
+polyVecBoundLEq low high [xs] = and [ (polyBoundLEq low high p) | p <- xs ]
+
+standardByte : [8] -> Bit
+standardByte a = 0 < (zext a : [23]) /\ (zext a : [23]) < `Q 
+
+standardBytes a = all standardByte a
+
+standard a = 0 <= a /\ a < `Q
+standardPoly [p] = all standard p
+standardPolyVec : {a} (fin a) => ImpPolyVec a -> Bit
+standardPolyVec [v] = all standardPoly v
+
+reducedBound a = 0 <= a /\ a < 2*`Q
+reducedBoundPoly [p] = all reducedBound p
+reducedBoundPolyVec [v] = all reducedBoundPoly v
+
+bitCoeff a = a == 0 \/ a == 1
+bitCoeffPoly [a] = all bitCoeff a
+
+bitCoeffPolyVec : {a} (fin a) => ImpPolyVec a -> Bit
+bitCoeffPolyVec [a] = all bitCoeffPoly a
+
+byteBound low high c = low <= c /\ c <= high
+
+// Decomposition and hints
+
+decomposeImp : [32] -> ([32], [32])
+decomposeImp = decomposeNew
+
+decomposePolyImp : ImpPoly -> (ImpPoly, ImpPoly)
+decomposePolyImp [p] = ([p1], [p2])
+  where
+   (p1, p2) = unzip [ decomposeImp x | x <- p ]
+
+decomposePolyVecImp : { n } (fin n, n >= 1) => ImpPolyVec n  -> (ImpPolyVec n, ImpPolyVec n)
+decomposePolyVecImp [r] = ([pv1], [pv2])
+  where
+    (pv1, pv2) = unzip [ decomposePolyImp p | p <- r ]
+
+makeHintImp : [32] -> [32] -> [32]
+makeHintImp a0 a1 =
+  if (a0 <= GAMMA2 \/ a0 > `Q - GAMMA2 \/ (a0 == `Q - GAMMA2 /\ a1 == 0))
+  then 0
+  else 1
+
+polyMakeHintImp : ImpPoly -> ImpPoly -> (ImpPoly, [32])
+polyMakeHintImp [a0] [a1] = ([hs], sum hs)
+  where
+    hs = [ makeHintImp c0 c1 | c0 <- a0 | c1 <- a1 ]
+
+polyVecMakeHintImp : {n} (fin n) => ImpPolyVec n -> ImpPolyVec n -> (ImpPolyVec n, [32])
+polyVecMakeHintImp [v0] [v1] = ([hs.0], sum hs.1)
+  where
+    hs = [ polyMakeHintImp p0 p1 | p0 <- v0 | p1 <- v1 ]
+
+useHintImp : ([32], [32]) -> [32]
+useHintImp (a, h) =
+  if h == 0 then a1 else if a0 > `Q then (a1 + 1) && 0x0000000F else (a1 - 1) && 0x0000000F
+  where
+    (a1, a0) = decomposeImp a
+
+useHintPolyImp : ImpPoly -> ImpPoly -> ImpPoly
+useHintPolyImp [rp] [hp] =
+  [ [ useHintImp (r, h) | r <- rp | h <- hp ] ]
+
+useHintPolyVecImp : { n }(fin n, n >= 1) => (ImpPolyVec n, ImpPolyVec n) -> ImpPolyVec n
+useHintPolyVecImp ([rv], [hv]) =
+  [ [ useHintPolyImp rpoly hpoly
+    | rpoly <- rv
+    | hpoly <- hv
+    ] ]
+
+polyPower2RoundImp : ImpPoly -> (ImpPoly, ImpPoly)
+polyPower2RoundImp a = (pToIP a0, addQToPoly a1)
+  where
+    (a0, a1) = polyPower2Round (ipToP a)
+
+polyVecPower2RoundImp :
+  {n} (n >= 1, fin n) =>
+  ImpPolyVec n -> (ImpPolyVec n, ImpPolyVec n)
+polyVecPower2RoundImp a = (pvToIpv a0, addQToPolyVec a1)
+  where
+    (a0, a1) = power2RoundPolyVec (ipvToPv a)
+
+// Reduction
+
+montgomeryReduce : [64] -> [32]
+montgomeryReduce a = drop ((a + (((a * QINV) && 0x00000000ffffffff) * `Q)) >> 32)
+
+property reduceGood (a : [54]) =
+  mod_mul (`Q, zext (montgomeryReduce (zext a)), `M) == a % `Q
+    where
+      type M = (2 ^^ 32) % Q
+
+reduce32 : [32] -> [32]
+reduce32 a = (a && 0x007FFFFF) + (b << 13) - b
+  where b = a >> 23
+
+csubq : [32] -> [32]
+csubq a = b + ((b >>$ 31) && `Q)
+  where b = a - `Q
+
+freeze : [32] -> [32]
+freeze a = csubq (reduce32 a)
 
 polyReduceImp : ImpPoly -> ImpPoly
 polyReduceImp xs = [ map reduce32 (xs@0) ]
@@ -161,51 +238,78 @@ polyFreezeImp xs = [map freeze (xs@0)]
 polyVecFreezeImp : {n}(fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n
 polyVecFreezeImp [xs] = [ map polyFreezeImp xs ]
 
+// Arithmetic
+
+// NB: different from spec, because it doesn't reduce
+polyAddImp : ImpPoly -> ImpPoly -> ImpPoly
+polyAddImp = (+)
+
+polyVecAddImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n -> ImpPolyVec n
+polyVecAddImp [xs] [ys] = [ [ polyAddImp xp yp | xp <- xs | yp <- ys ] ]
+
+// NB: different from spec, because it doesn't reduce
+polySubImp : ImpPoly -> ImpPoly -> ImpPoly
+polySubImp xs ys = [ [ x + 2*`Q - y | x <- xs@0 | y <- ys@0 ] ]
+
+polyVecSubImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n -> ImpPolyVec n
+polyVecSubImp [xs] [ys] = [ [ polySubImp xp yp | xp <- xs | yp <- ys ] ]
+
 polyShiftlImp : ImpPoly -> ImpPoly
 polyShiftlImp xs = [ [ x << `D | x <- (xs@0)] ]
 
 polyVecShiftlImp : {dim} ImpPolyVec dim -> ImpPolyVec dim
 polyVecShiftlImp [p] = [map polyShiftlImp p]
 
-coeffBound low high c = low <$ c /\ c <$ high
-coeffBoundGEq low high c = low <=$ c /\ c <$ high
-coeffBoundLGEq low high c = low <=$ c /\ c <=$ high
-coeffBoundLEq low high c = low <$ c /\ c <=$ high
-
-polyBoundLEq : [32] -> [32] -> ImpPoly -> Bit
-polyBoundLEq low high [xs] = all (coeffBoundLEq low high) xs
-
-polyBoundLGEq : [32] -> [32] -> ImpPoly -> Bit
-polyBoundLGEq low high [xs] = all (coeffBoundLGEq low high) xs
-
-polyBound : [32] -> [32] -> ImpPoly -> Bit
-polyBound low high [xs] = all (coeffBound low high) xs
-
-
-polyBoundGEq : [32] -> [32] -> ImpPoly -> Bit
-polyBoundGEq low high [xs] = all (coeffBoundGEq low high) xs
-
-polyVecBound : {m} (fin m, m >= 1) => [32] -> [32] -> ImpPolyVec m  -> Bit
-polyVecBound low high [xs] = and [ (polyBound low high p) | p <- xs ]
-
-polyVecBoundGEq : {m} (fin m, m >= 1) => [32] -> [32] -> ImpPolyVec m  -> Bit
-polyVecBoundGEq low high [xs] = and [ (polyBoundGEq low high p) | p <- xs ]
-
-polyVecBoundLEq : {m} (fin m, m >= 1) => [32] -> [32] -> ImpPolyVec m  -> Bit
-polyVecBoundLEq low high [xs] = and [ (polyBoundLEq low high p) | p <- xs ]
+// Packing and unpacking
 
 packPolyEtaImp : ImpPoly -> [PolEtaSizePacked][8]
 packPolyEtaImp a = split (packPolyEta (ipToP a))
 
+unpackPolyEtaImp : [PolEtaSizePacked][8] -> ImpPoly
+unpackPolyEtaImp a = pToIP (unpackPolyEta a)
+
+polyW1PackImp : ImpPoly -> [PolEtaSizePacked][8]
+polyW1PackImp a =
+  split (join [ join [ xs@0 || (xs@1 << 4)
+                     | xs <- split p : [128][2][_]
+                     ]
+              | p <- map (\p -> map (\x -> drop`{24} x:[8]) p) a
+              ])
+
+polyZPackImp : ImpPoly -> [PolZSizePacked][8]
+polyZPackImp a = polyZPack (ipToP a) 
+
+polyT0UnpackImp : [PolT0SizePacked][8] -> ImpPoly
+polyT0UnpackImp a = pToIP (polyT0Unpack a) 
+
+polyT1UnpackImp : [PolT1SizePacked][8] -> ImpPoly
+polyT1UnpackImp a = pToIP (polyT1Unpack a) 
+
+polyT1PackImp : ImpPoly -> [PolT1SizePacked][8]
+polyT1PackImp a = split (polyT1Pack (ipToP a))
+
+polyT0PackImp : ImpPoly -> [PolT0SizePacked][8]
+polyT0PackImp a = split (polyT0Pack (ipToP a))
+
+
 packPkImp : [SeedBytes][8] -> ImpPolyVec K -> [CryptoPublicKeyBytes][8]
 packPkImp rho t1 = split (packPk rho (ipvToPv t1))
+
+packSkImp : [SeedBytes][8] -> [SeedBytes][8] -> [CrhBytes][8] ->
+            ImpPolyVec L -> ImpPolyVec K -> ImpPolyVec K ->
+            [CryptoSecretKeyBytes][8]
+packSkImp rho key tr s1 s2 t0 =
+  split (packSk rho key tr (ipvToPv s1) (ipvToPv s2) (ipvToPv t0)) :[_][8]
 
 unpackPkImp : [CryptoPublicKeyBytes][8] -> ([SeedBytes][8], ImpPolyVec K)
 unpackPkImp pk = (rho, pvToIpv t1)
   where
     (rho, t1) = unpackPk pk
 
-unpackSkImp : [CryptoSecretKeyBytes][8] -> ([SeedBytes][8], [SeedBytes][8], [CrhBytes][8], ImpPolyVec L, ImpPolyVec K, ImpPolyVec K)
+unpackSkImp : [CryptoSecretKeyBytes][8] ->
+              ( [SeedBytes][8], [SeedBytes][8], [CrhBytes][8]
+              , ImpPolyVec L, ImpPolyVec K, ImpPolyVec K
+              )
 unpackSkImp sk = (rho, key, tr, pvToIpv s1, pvToIpv s2, pvToIpv t0)
   where
     (rho, key, tr, s1, s2, t0) = unpackSk sk
@@ -218,12 +322,227 @@ unpackSigImp sig = (pvToIpv z, pvToIpv h, pToIP c)
 packSigImp : (ImpPolyVec L, ImpPolyVec K, ImpPoly) -> [SigSizePacked][8]
 packSigImp (z, h, c) = split (packSig (ipvToPv z, ipvToPv h, ipToP c))
 
+skTupleToRec : ( [SeedBytes][8], [SeedBytes][8], [CrhBytes][8]
+               , PolyVec L, PolyVec K, IntPolyVec K
+               ) ->
+               SecretKey
+skTupleToRec t =
+  { rho = join t.0, key = join t.1, tr = join t.2
+  , s1 = t.3, s2 = t.4, t0 = t.5
+  }
+
+pkBytesToRec : [CryptoPublicKeyBytes][8] -> PublicKey
+pkBytesToRec pk = { rho = join rho, t1 = t1 }
+  where (rho, t1) = unpackPk pk
+
+// Number Theoretic Transform and its inverse
+
+nttImpFold : ImpPoly -> ImpPoly
+nttImpFold p = foldl nttImpBodyWrap p nttidxs
+
+type MONT = 4193792
+
+nttInvImpFold : ImpPoly -> ImpPoly
+nttInvImpFold p = [map invReduce pmid]
+  where
+    f : [32]
+    //f = 0x0000a3fa
+    f = fromInteger (((`MONT * `MONT % `Q) * (`Q - 1) % `Q) * ((`Q - 1) / 256) % `Q)
+    invReduce pj = nttReduce f pj
+    [pmid] = foldl nttInvImpBodyWrap p nttinvidxs
+
+nttImpBody : ([32], [32], [32]) -> ([32], [32])
+nttImpBody (zeta, pj, pjlen) = (pj', pjlen')
+  where
+    t = nttReduce zeta pjlen
+    pjlen' = pj + 2*`Q - t
+    pj' = pj + t
+
+nttImpBodyWrap : ImpPoly -> ([32], [32], [32]) -> ImpPoly
+nttImpBodyWrap [p] (len, zeta, j) = [p']
+  where
+    (pj', pjlen') = nttImpBody (zeta, (p@j), (p@(j + len)))
+    p' = update (update p (j + len) pjlen') j pj'
+
+nttInvImpBody : ([32], [32], [32]) -> ([32], [32])
+nttInvImpBody (zeta, pj, pjlen) = (pj', pjlen')
+  where
+    pj' = pj + pjlen
+    pjlen' = nttReduce zeta (pj + 256*`Q - pjlen)
+
+nttInvImpBodyWrap : ImpPoly -> ([32], [32], [32]) -> ImpPoly
+nttInvImpBodyWrap [p] (len, zeta, j) = [p']
+  where
+    (pj', pjlen') = nttInvImpBody (zeta, (p@j), (p@(j + len)))
+    p' = update (update p (j + len) pjlen') j pj'
+
+nttReduce : [32] -> [32] -> [32]
+nttReduce zeta pj = montgomeryReduce (zext zeta * zext pj)
+
+
+nttImp : ImpPoly -> ImpPoly
+nttImp a = nttImpFold a
+
+nttVecImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n
+nttVecImp [xs] = [map nttImp xs]
+
+nttInvImp : ImpPoly -> ImpPoly
+nttInvImp a = nttInvImpFold a
+
+nttInvVecImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n
+nttInvVecImp [xs] = [ map nttInvImp xs ]
+
+nttPolyMultImp : ImpPoly -> ImpPoly -> ImpPoly
+nttPolyMultImp [p1] [p2] = [ [ montgomeryReduce (zext x * zext y) | x <- p1 | y <- p2 ] ]
+
+nttDotProductImp : { dim } (fin dim) => ImpPolyVec dim -> ImpPolyVec dim -> ImpPoly
+nttDotProductImp [v1] [v2] =
+  foldl polyAddImp zero [ nttPolyMultImp p1 p2 | p1 <- v1 | p2 <- v2 ]
+
+addQToPoly : Poly -> ImpPoly
+addQToPoly p = [ [ (sext c0) + `Q | c0 <- p] ]
+
+addQToPolyVec : {n} (fin n, n >= 1) => PolyVec n -> ImpPolyVec n
+addQToPolyVec pv = [ map addQToPoly pv ]
+
+// Normalization checking and sampling
+
+polyChkNormImp : ImpPoly -> [32] -> Bit
+polyChkNormImp [a] b = False /* or [ res i >= b | i <- [0..N-1] ]
+  where
+    t i = ((`Q - 1) / 2) - a@i
+    y x = x ^ (x >>$ 31)
+    res i = ((`Q - 1) / 2) - (y (t i)) */
+
+// polyVecKChkNorm (from source code)
+polyVecChkNormImp : { n } (fin n, n >= 1) => ImpPolyVec n -> [32] -> Bit
+polyVecChkNormImp [pv] b = or [ polyChkNormImp p b | p <- pv ]
+
+// NB: definition doesn't matter because we never look at it
+samplePolyImp : ([CrhBytes][8], [16]) -> ImpPoly
+samplePolyImp (rho, kappa) = zero
+
+polyUniformEtaImp : [SeedBytes][8] -> [16] -> ImpPoly
+polyUniformEtaImp seed nonce = pToIP (polyUniformEta seed nonce)
+
 expandAImp : [SeedBytes][8] -> [K](ImpPolyVec L)
 expandAImp rho = pmToIpm (expandA rho)
 
-reducePoly : Poly -> Poly
-reducePoly p = map (\x -> x % `Q) p
+// Hashing
 
+type Shake256State = [26][64]
+
+keccak_init : Shake256State
+keccak_init = zero
+
+// NB: definition doesn't matter because we never look at it
+keccak_absorb : {a} Shake256State -> [a][8] -> Shake256State
+keccak_absorb s m = zero
+
+// NB: definition doesn't matter because we never look at it
+keccak_squeeze : Shake256State -> [CrhBytes][8]
+keccak_squeeze s = zero
+
+// NB: definition doesn't matter because we never look at it
+keccak_finalize : Shake256State -> Shake256State
+keccak_finalize s = s
+
+shake256 = SHA3::SHAKE256
+
+crhImp : { b } (fin b, b >= 1) => [b][8] -> [CrhBytes][8]
+crhImp key = split (crh (join key))
+
+hashImp : [CrhBytes][8] -> ImpPolyVec K -> ImpPoly
+hashImp mu w = pToIP (hash (join mu, ipvToPv w))
+
+// Signature creation and verification
+
+genImp :
+  {n, m} (768 == n * m, fin m) =>
+  [n][m] -> ([CryptoPublicKeyBytes][8], [CryptoSecretKeyBytes][8])
+genImp seed = (split pk', split sk')
+  where
+    (pk, sk) = gen (join seed)
+    pk' = packPk (split pk.rho) pk.t1
+    sk' = packSk (split sk.rho) (split sk.key) (split sk.tr) sk.s1 sk.s2 sk.t0
+
+signSignatureImp :
+  { mbytes }
+  (fin mbytes, mbytes >= 0) =>
+  [CryptoSecretKeyBytes][8] -> [mbytes][8] -> [SigSizePacked][8]
+signSignatureImp sk m = sig
+  where
+    (rho, key, tr, s1, s2, t0) = unpackSkImp sk
+    st0       = keccak_init
+    st1       = keccak_absorb st0 tr
+    st2       = keccak_absorb st1 m
+    st3       = keccak_finalize st2
+    mu        = keccak_squeeze st3
+    rhoprime  = crhImp (key # mu)
+    mat       = expandAImp rho
+    s1ntt     = nttVecImp s1
+    s2ntt     = nttVecImp s2
+    t0ntt     = nttVecImp t0
+    y         = [ [ samplePolyImp (rhoprime, nonce) | nonce <- [0..L-1] ] ]
+    yhat      = nttVecImp y
+    w         = polyVecCsubqImp (nttInvVecImp (polyVecReduceImp [ map (\row -> nttDotProductImp row yhat) mat ]))
+    (w1, w0)  = decomposePolyVecImp w
+    c         = hashImp mu w1
+    chat      = nttImp c
+    cs2       = nttInvVecImp [ map (\row -> nttPolyMultImp chat row) (s2ntt@0) ]
+    w0'       = polyVecFreezeImp (polyVecSubImp w0 cs2)
+    z         = nttInvVecImp [ map (\row -> nttPolyMultImp chat row) (s1ntt@0) ]
+    z'        = polyVecFreezeImp (polyVecAddImp z y)
+    ct0       = polyVecCsubqImp (nttInvVecImp [ map (\row -> nttPolyMultImp chat row) (t0ntt@0) ])
+    w0''      = polyVecCsubqImp (polyVecAddImp w0' ct0)
+    (h, n)    = polyVecMakeHintImp w0'' w1
+    sig       = packSigImp (z', h, c)
+
+signImp :
+  { mbytes }
+  (fin mbytes, mbytes >= 0) =>
+  [CryptoSecretKeyBytes][8] -> [mbytes][8] -> [SigSizePacked+mbytes][8]
+signImp sk m = signSignatureImp sk m # m
+
+verifyImp :
+  { mbytes }
+  (fin mbytes, mbytes >= 0) =>
+  [CryptoPublicKeyBytes][8] -> [mbytes][8] -> [SigSizePacked][8] -> Bit
+verifyImp pk m sig = /*crit1 &&*/ crit2 // && crit3
+  where
+    (rho, t1) = unpackPkImp pk
+    (z, h, c) = unpackSigImp sig
+    //crit1     = polyVecChkNormImp z (GAMMA1 - zext BETA)
+    mu0       = crhImp pk
+    st0       = keccak_init
+    st1       = keccak_absorb st0 mu0
+    st2       = keccak_absorb st1 m
+    st3       = keccak_finalize st2
+    mu        = keccak_squeeze st3
+    mat       = expandAImp rho
+    zntt      = nttVecImp z
+    tmp1      = [ map (\row -> nttDotProductImp row zntt) mat ]
+    chat      = nttImp c
+    t1'       = nttVecImp (polyVecShiftlImp t1)
+    tmp2      = [ map (\row -> nttPolyMultImp chat row) (t1'@0) ]
+    tmp1'     = polyVecCsubqImp (nttInvVecImp (polyVecReduceImp (polyVecSubImp tmp1 tmp2)))
+    w1        = useHintPolyVecImp (tmp1', h)
+    cp        = hashImp mu w1
+    crit2     = c == cp
+
+openImp :
+  { smbytes }
+  (fin smbytes, smbytes >= SigSizePacked, 64 >= width (smbytes - 2044)) =>
+  [CryptoPublicKeyBytes][8] -> [smbytes][8] -> ([smbytes-SigSizePacked][8], [64], [32])
+openImp pk sm =
+  if verifyImp pk m sig then (m, `(smbytes-SigSizePacked), 0) else (zero, -1, -1)
+    where
+      sig = take sm
+      m = drop sm
+
+// Currently unused functions that may be useful in the future.
+
+/*
 starts : {len} (fin len, len > 0, 32 >= width (max 256 (2 * len))) => [_][32]
 starts = [0, (2*len) .. N-1]
 
@@ -235,97 +554,40 @@ idxs = [ j | start <- starts `{len}, j <- js `{len} start ]
 
 args : {len} (fin len, len > 0, 32 >= width len, 32 >= width (max 256 (2 * len))) => [_]([32], [32], [32])
 args = [ (`len, 2 /* TODO: zeta */, j) | j <- idxs `{len} ]
+*/
 
-nttImpFold : ImpPoly -> ImpPoly
-nttImpFold p = foldl nttImpBody p nttidxs
-  /*
+/*
+reducePoly : Poly -> Poly
+reducePoly p = map (\x -> x % `Q) p
+
+// a1 and a0 represent low, high order bits respectively.
+decomposePc (a1 : [23]) (a0 : [23]) (a : [23]) =
+  if a1 != (`Q - 1)/ALPHA
+  // This is satisfied by decompose but not decomposeNew
+  then mod_pow(`Q, a, 1) == a1*ALPHA + a0 /\ -ALPHA/2 <$ a0 /\ a0 <=$ ALPHA/2
+  // This is satisfied by decomposeNew and decompose
+  else a1 == 0 /\ a0 == mod_pow(`Q, a, 1) - `Q  /\ -ALPHA/2 <=$ a0 /\ a0 <$ 0
+                               
+decomposePolyPc : Poly -> Poly -> Poly -> Bit 
+decomposePolyPc plb phb p = and [ decomposePc a1 a0 a | a1 <- plb | a0 <- phb | a <- p ]
+
+decomposePolyVecPc : { n } (fin n, n >= 1) => PolyVec n -> PolyVec n -> PolyVec n -> Bit 
+decomposePolyVecPc pvlb pvhb pv = and [ decomposePolyPc plb phb p | plb <- pvlb | phb <- pvhb | p <- pv ]
+
+property decomposePcGood (a:[23]) =
+  0 <$ a /\ a <$ `Q ==>
+  (decomposePc a1 a0 a /\ decomposePc (drop a1n) (drop a0n) a)
+    where
+      (a1, a0) = decompose a
+      (a1n, a0n) = decomposeNew (sext a)
+
+property decomposeEq (a : [23]) = 0 <$ a /\ a <$ `Q ==> sext a0 == a0n /\ sext a1 == a1n
   where
-    allArgs = args`{128} # args`{64} # args`{32} # args`{16} #
-              args`{8}   # args`{4}  # args`{2}  # args`{1}
-              */
+    (a1, a0) = decompose a
+    (a1n, a0n) = decomposeNew (sext a)
+    */
 
-nttImpFold2 : ImpPoly -> ImpPoly
-nttImpFold2 p = foldl nttImpBody2Wrap p nttidxs
-
-type MONT = 4193792
-
-nttInvImpFold : ImpPoly -> ImpPoly
-nttInvImpFold p = [map invReduce pmid]
-  where
-    f : [32]
-    f = fromInteger (((`MONT * `MONT % `Q) * (`Q - 1) % `Q) * ((`Q - 1) / 256) % `Q)
-    invReduce pj = nttReduce f pj
-    [pmid] = foldl nttInvImpBody p nttinvidxs
-    /*
-    allArgs = args`{1}  # args`{2}  # args`{4}  # args`{8} #
-              args`{16} # args`{32} # args`{64} # args`{128}
-              */
-
-nttInvImpFold2 : ImpPoly -> ImpPoly
-nttInvImpFold2 p = [map invReduce pmid]
-  where
-    f : [32]
-    //f = 0x0000a3fa
-    f = 0x0000a3fa //fromInteger (((`MONT * `MONT % `Q) * (`Q - 1) % `Q) * ((`Q - 1) / 256) % `Q)
-    invReduce pj = nttReduce f pj
-    [pmid] = foldl nttInvImpBody2Wrap p nttinvidxs
-
-nttImpBody : ImpPoly -> ([32], [32], [32]) -> ImpPoly
-nttImpBody [p] (len, zeta, j) = [p'']
-  where
-    t = nttReduce zeta (p@(j + len))
-    p' = update p (j + len) ((p@j) + 2*`Q - t)
-    p'' = update p' j ((p@j) + t)
-
-nttImpBody2 : ([32], [32], [32]) -> ([32], [32])
-nttImpBody2 (zeta, pj, pjlen) = (pj', pjlen')
-  where
-    t = nttReduce zeta pjlen
-    pjlen' = pj + 2*`Q - t
-    pj' = pj + t
-
-nttImpBody2Wrap : ImpPoly -> ([32], [32], [32]) -> ImpPoly
-nttImpBody2Wrap [p] (len, zeta, j) = [p']
-  where
-    (pj', pjlen') = nttImpBody2 (zeta, (p@j), (p@(j + len)))
-    p' = update (update p (j + len) pjlen') j pj'
-
-property bodyBody2 p len zeta j = j < 256 /\ j + len < 256 /\ j != len ==> p' == p''
-  where
-    p' = nttImpBody2Wrap p  (len, zeta, j)
-    p'' = nttImpBody p (len, zeta, j)
-
-nttInvImpBody : ImpPoly -> ([32], [32], [32]) -> ImpPoly
-nttInvImpBody [p] (len, zeta, j) = [p''']
-  where
-    t = p@j
-    p' = update p j (t + p@(j + len))
-    t' = t + 256*`Q - p'@(j + len)
-    p'' = update p' (j + len) t'
-    p''' = update p'' (j + len) (nttReduce zeta t')
-
-nttInvImpBody2 : ([32], [32], [32]) -> ([32], [32])
-nttInvImpBody2 (zeta, pj, pjlen) = (pj', pjlen')
-  where
-    pj' = pj + pjlen
-    pjlen' = nttReduce zeta (pj + 256*`Q - pjlen)
-
-nttInvImpBody2Wrap : ImpPoly -> ([32], [32], [32]) -> ImpPoly
-nttInvImpBody2Wrap [p] (len, zeta, j) = [p']
-  where
-    (pj', pjlen') = nttInvImpBody2 (zeta, (p@j), (p@(j + len)))
-    p' = update (update p (j + len) pjlen') j pj'
-
-nttReduce : [32] -> [32] -> [32]
-nttReduce zeta pj = montgomeryReduce (zext zeta * zext pj)
-
-modEqual : ImpPoly -> ImpPoly -> Bit
-modEqual [p1] [p2] = and [ p1e % `Q == p2e % `Q | p1e <- p1 | p2e <- p2 ]
-
-property nttInvGood (p:[N][22]) =
-  modEqual (nttInvImpFold (nttImpFold p')) p'
-    where p' = [map zext p]
-
+/*
 zetas : [N][32]
 zetas = [
     0, 25847, 5771523, 7861508, 237124, 7602457, 7504169, 466468, 1826347,
@@ -371,189 +633,4 @@ nttDirect [p] = [nttp]
                  ]
            | k <- exponents : [_][32]
            ]
-
-
-nttImp : ImpPoly -> ImpPoly
-nttImp a = nttImpFold2 a // pToIP (nttNew (ipToP a))
-
-nttVecImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n
-nttVecImp [xs] = [map nttImp xs]
-
-nttInvImp : ImpPoly -> ImpPoly
-nttInvImp a = nttInvImpFold2 a // pToIP (nttInv (ipToP a))
-
-nttInvVecImp : {n} (fin n, n >= 1) => ImpPolyVec n -> ImpPolyVec n
-nttInvVecImp [xs] = [ map nttInvImp xs ]
-
-nttPolyMultImp : ImpPoly -> ImpPoly -> ImpPoly
-nttPolyMultImp [p1] [p2] = [ [ montgomeryReduce (zext x * zext y) | x <- p1 | y <- p2 ] ]
-
-nttDotProductImp : { dim } (fin dim) => ImpPolyVec dim -> ImpPolyVec dim -> ImpPoly
-nttDotProductImp [v1] [v2] =
-  foldl polyAddImp zero [ nttPolyMultImp p1 p2 | p1 <- v1 | p2 <- v2 ]
-
-standardByte : [8] -> Bit
-standardByte a = 0 < (zext a : [23]) /\ (zext a : [23]) < `Q 
-
-standardBytes a = all standardByte a
-
-standard a = 0 <= a /\ a < `Q
-standardPoly [p] = all standard p
-standardPolyVec : {a} (fin a) => ImpPolyVec a -> Bit
-standardPolyVec [v] = all standardPoly v
-
-reducedBound a = 0 <= a /\ a < 2*`Q
-reducedBoundPoly [p] = all reducedBound p
-reducedBoundPolyVec [v] = all reducedBoundPoly v
-
-bitCoeff a = a == 0 \/ a == 1
-bitCoeffPoly [a] = all bitCoeff a
-
-bitCoeffPolyVec : {a} (fin a) => ImpPolyVec a -> Bit
-bitCoeffPolyVec [a] = all bitCoeffPoly a
-
-byteBound low high c = low <= c /\ c <= high
-
-addQToPoly : Poly -> ImpPoly
-addQToPoly p = [ [ (sext c0) + `Q | c0 <- p] ]
-
-addQToPolyVec : {n} (fin n, n >= 1) => PolyVec n -> ImpPolyVec n
-addQToPolyVec pv = [ map addQToPoly pv ]
-
-skTupleToRec : ([SeedBytes][8], [SeedBytes][8], [CrhBytes][8], PolyVec L, PolyVec K, IntPolyVec K) -> SecretKey
-skTupleToRec t = { rho = join t.0, key = join t.1, tr = join t.2, s1 = t.3, s2 = t.4, t0 = t.5 }
-
-pkBytesToRec : [CryptoPublicKeyBytes][8] -> PublicKey
-pkBytesToRec pk = { rho = join rho, t1 = t1 }
-  where (rho, t1) = unpackPk pk
-
-polyChkNormImp : ImpPoly -> [32] -> Bit
-polyChkNormImp [a] b = False /* or [ res i >= b | i <- [0..N-1] ]
-  where
-    t i = ((`Q - 1) / 2) - a@i
-    y x = x ^ (x >>$ 31)
-    res i = ((`Q - 1) / 2) - (y (t i)) */
-
-// polyVecKChkNorm (from source code)
-polyVecChkNormImp : { n } (fin n, n >= 1) => ImpPolyVec n -> [32] -> Bit
-polyVecChkNormImp [pv] b = or [ polyChkNormImp p b | p <- pv ]
-
-useHintImp : ([32], [32]) -> [32]
-useHintImp (a, h) =
-  if h == 0 then a1 else if a0 > `Q then (a1 + 1) && 0x0000000F else (a1 - 1) && 0x0000000F
-  where
-    (a1, a0) = decomposeImp a
-
-useHintPolyImp : ImpPoly -> ImpPoly -> ImpPoly
-useHintPolyImp [rp] [hp] =
-  [ [ useHintImp (r, h) | r <- rp | h <- hp ] ]
-
-useHintPolyVecImp : { n }(fin n, n >= 1) => (ImpPolyVec n, ImpPolyVec n) -> ImpPolyVec n
-useHintPolyVecImp ([rv], [hv]) =
-  [ [ useHintPolyImp rpoly hpoly
-    | rpoly <- rv
-    | hpoly <- hv
-    ] ]
-
-// NB: definition doesn't matter because we never look at it
-samplePolyImp : ([CrhBytes][8], [16]) -> ImpPoly
-samplePolyImp (rho, kappa) = zero
-
-type Shake256State = [26][64]
-
-keccak_init : Shake256State
-keccak_init = zero
-
-// NB: definition doesn't matter because we never look at it
-keccak_absorb : {a} Shake256State -> [a][8] -> Shake256State
-keccak_absorb s m = zero // join (transpose (absorb`{w=64} (pad`{r= (RATE*8)} (join [reverse x | x<-m]#0b1111)))) }};// TODO
-
-// NB: definition doesn't matter because we never look at it
-keccak_squeeze : Shake256State -> [CrhBytes][8]
-keccak_squeeze s = zero // join (transpose(Keccak_f(transpose (split s:[5][5][64])))) // TODO
-
-// NB: definition doesn't matter because we never look at it
-keccak_finalize : Shake256State -> Shake256State
-keccak_finalize s = s // TODO
-
-shake256 = SHA3::SHAKE256
-
-crhImp : { b } (fin b, b >= 1) => [b][8] -> [CrhBytes][8]
-crhImp key = split (crh (join key))
-
-hashImp : [CrhBytes][8] -> ImpPolyVec K -> ImpPoly
-hashImp mu w = pToIP (hash (join mu, ipvToPv w))
-
-signSignatureImp :
-  { mbytes }
-  (fin mbytes, mbytes >= 0) =>
-  [CryptoSecretKeyBytes][8] -> [mbytes][8] -> [SigSizePacked][8]
-signSignatureImp sk m = sig
-  where
-    (rho, key, tr, s1, s2, t0) = unpackSkImp sk
-    st0       = keccak_init
-    st1       = keccak_absorb st0 tr
-    st2       = keccak_absorb st1 m
-    st3       = keccak_finalize st2
-    mu        = keccak_squeeze st3
-    rhoprime  = crhImp (key # mu)
-    mat       = expandAImp rho
-    s1ntt     = nttVecImp s1
-    s2ntt     = nttVecImp s2
-    t0ntt     = nttVecImp t0
-    y         = [ [ samplePolyImp (rhoprime, nonce) | nonce <- [0..L-1] ] ]
-    yhat      = nttVecImp y
-    w         = polyVecCsubqImp (nttInvVecImp (polyVecReduceImp [ map (\row -> nttDotProductImp row yhat) mat ]))
-    (w1, w0)  = decomposePolyVecImp w
-    c         = hashImp mu w1
-    chat      = nttImp c
-    cs2       = nttInvVecImp [ map (\row -> nttPolyMultImp chat row) (s2ntt@0) ]
-    w0'       = polyVecFreezeImp (polyVecSubImp w0 cs2)
-    z         = nttInvVecImp [ map (\row -> nttPolyMultImp chat row) (s1ntt@0) ]
-    z'        = polyVecFreezeImp (polyVecAddImp z y)
-    ct0       = polyVecCsubqImp (nttInvVecImp [ map (\row -> nttPolyMultImp chat row) (t0ntt@0) ])
-    w0''      = polyVecCsubqImp (polyVecAddImp w0' ct0)
-    (h, n)    = polyVecMakeHintImp w0'' w1
-    sig       = packSigImp (z', h, c)
-
-signImp :
-  { mbytes }
-  (fin mbytes, mbytes >= 0) =>
-  [CryptoSecretKeyBytes][8] -> [mbytes][8] -> [SigSizePacked+mbytes][8]
-signImp sk m = signSignatureImp sk m # m
-
-verifyImp :
-  { mbytes }
-  (fin mbytes, mbytes >= 0) =>
-  [CryptoPublicKeyBytes][8] -> [mbytes][8] -> [SigSizePacked][8] -> Bit
-verifyImp pk m sig = /*crit1 &&*/ crit2 // && crit3 // TODO: other criteria
-  where
-    (rho, t1) = unpackPkImp pk
-    (z, h, c) = unpackSigImp sig
-    //crit1     = polyVecChkNormImp z (GAMMA1 - zext BETA)
-    mu0       = crhImp pk
-    st0       = keccak_init
-    st1       = keccak_absorb st0 mu0
-    st2       = keccak_absorb st1 m
-    st3       = keccak_finalize st2
-    mu        = keccak_squeeze st3
-    mat       = expandAImp rho
-    zntt      = nttVecImp z
-    tmp1      = [ map (\row -> nttDotProductImp row zntt) mat ]
-    chat      = nttImp c
-    t1'       = nttVecImp (polyVecShiftlImp t1)
-    tmp2      = [ map (\row -> nttPolyMultImp chat row) (t1'@0) ]
-    tmp1'     = polyVecCsubqImp (nttInvVecImp (polyVecReduceImp (polyVecSubImp tmp1 tmp2)))
-    w1        = useHintPolyVecImp (tmp1', h)
-    cp        = hashImp mu w1
-    crit2     = c == cp
-
-openImp :
-  { smbytes }
-  (fin smbytes, smbytes >= SigSizePacked, 64 >= width (smbytes - 2044)) =>
-  [CryptoPublicKeyBytes][8] -> [smbytes][8] -> ([smbytes-SigSizePacked][8], [64], [32])
-openImp pk sm =
-  if verifyImp pk m sig then (m, `(smbytes-SigSizePacked), 0) else (zero, -1, -1)
-    where
-      sig = take sm
-      m = drop sm
+           */
