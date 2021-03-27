@@ -27,6 +27,8 @@ import Primitive::Asymmetric::Signature::Dilithium::Round2::DilithiumMedium (
   CryptoSecretKeyBytes,
   PolEtaSizePacked,
   PolZSizePacked,
+  PolT0SizePacked,
+  PolT1SizePacked,
   SecretKey,
   PublicKey,
   //decompose,
