@@ -350,7 +350,7 @@ let prove_dilithium MODULE MODE = do {
       (pjp, pj) <- ptr_to_fresh "pj" i32;
       (pjlenp, pjlen) <- ptr_to_fresh "pjlen" i32;
       crucible_execute_func [tm zeta, pjp, pjlenp];
-      let res = {{ nttInvImpBody2 (zeta, pj, pjlen) }};
+      let res = {{ nttInvImpBody (zeta, pj, pjlen) }};
       crucible_points_to pjp (tm {{ res.0 }});
       crucible_points_to pjlenp (tm {{ res.1 }});
     };
@@ -396,7 +396,7 @@ let prove_dilithium MODULE MODE = do {
       (pjp, pj) <- ptr_to_fresh "pj" i32;
       (pjlenp, pjlen) <- ptr_to_fresh "pjlen" i32;
       crucible_execute_func [tm zeta, pjp, pjlenp];
-      let res = {{ nttImpBody2 (zeta, pj, pjlen) }};
+      let res = {{ nttImpBody (zeta, pj, pjlen) }};
       crucible_points_to pjp (tm {{ res.0 }});
       crucible_points_to pjlenp (tm {{ res.1 }});
     };
@@ -419,7 +419,7 @@ let prove_dilithium MODULE MODE = do {
       [ntt_body_spec]
       false
       PQCLEAN_DILITHIUM2_CLEAN_ntt_setup
-      (w4_unint_yices ["nttImpBody2"]);
+      (w4_unint_yices ["nttImpBody"]);
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_setup = do {
       (ap, a) <- fresh_poly "a";
@@ -433,7 +433,7 @@ let prove_dilithium MODULE MODE = do {
       [PQCLEAN_DILITHIUM2_CLEAN_ntt_method_spec]
       false
       PQCLEAN_DILITHIUM2_CLEAN_poly_ntt_setup
-      (w4_unint_yices ["nttImpBody2"]);
+      (w4_unint_yices ["nttImpBody"]);
 
     let PQCLEAN_DILITHIUM2_CLEAN_poly_pointwise_invmontgomery_setup = do {
       cp <- alloc_poly;
